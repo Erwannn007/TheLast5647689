@@ -4,7 +4,7 @@ import { tileBuffer, bankBuffer, leafLitter, WATER_FRAMES, T } from './sprites/t
 import { treeFrames, bushFrames, rockSprite, grassFrames, reedFrames, shadowBuffer, SWAY_FRAMES } from './sprites/nature.js';
 import { wallSprite, fenceSprite, roofSprite } from './sprites/build.js';
 import { propSprite } from './sprites/props.js';
-import { carSprite } from './sprites/cars.js';
+import { carSprite, CAR_DIRS } from './sprites/cars.js';
 import { bakePlayer } from './sprites/player.js';
 import { iconBuffer, ICONS } from './sprites/icons.js';
 import { makeBuffer } from './raster.js';
@@ -44,7 +44,11 @@ export const reed = (v, f) => memo(`d${v}`, () => reedFrames(v).map(toSprite))[f
 export const prop = (name, k, v) => memo(`p${name}${k}${v}`, () => toSprite(propSprite(name, k, v).img));
 export const wall = (mask, kind, style, intU, intV, cut) =>
   memo(`w${mask}${kind}${style.ext}${style.int}${intU}${intV}${cut}`, () => toSprite(wallSprite(mask, kind, style, intU, intV, cut).img));
-export const car = (v, k) => memo(`c${v}_${k}`, () => toSprite(carSprite(v, k).img));
+export const car = (v, i) => memo(`c${v}_${i}`, () => toSprite(carSprite(v, i).img));
+// cuit d'avance une orientation manquante par appel (la voiture conduite tourne sans à-coup)
+export function warmCar(v) {
+  for (let i = 0; i < CAR_DIRS; i++) if (!cache.has(`c${v}_${i}`)) { car(v, i); return; }
+}
 export const fence = (mask) => memo(`f${mask}`, () => toSprite(fenceSprite(mask).img));
 export const roof = (b) => memo(`roof${b.id}`, () => toSprite(roofSprite(b.x1 - b.x0 + 1, b.y1 - b.y0 + 1, b.style, b.seed).img));
 export const icon = (id) => S.icons[id];

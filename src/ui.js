@@ -4,7 +4,7 @@ import * as B from './bank.js';
 import { G, HOTBAR, addTo, sameKind, maxStack, hour, day, say } from './state.js';
 import { ITEMS, matchRecipe, COOK_TIME } from './items.js';
 import { LABEL } from './world.js';
-import { useItem, drop, save, newGame, wipe, refreshFires } from './game.js';
+import { useItem, drop, save, newGame, wipe, refreshFires, driving } from './game.js';
 import { sfx, setMuted, initAudio } from './audio.js';
 import { screenOf } from './render.js';
 
@@ -15,7 +15,7 @@ let buttons = []; // zones cliquables du HUD, recalculées à chaque image
 let slots = []; // cases de l'inventaire ouvert
 let stick = null, aimStick = null;
 let pointer = null; // doigt qui manipule l'inventaire
-let lastTap = null;
+let tip = null; // infobulle ouverte : { key }
 let menuConfirm = 0;
 let selShow = 0;
 
@@ -70,7 +70,7 @@ function layoutHUD() {
   if (acts[1]) buttons.push({ kind: 'act', a: acts[1], cx: ax, cy: ay - 46, r: 12, col: [60, 165, 190] });
   if (acts[2]) buttons.push({ kind: 'act', a: acts[2], cx: ax - 34, cy: ay - 40, r: 11, col: [60, 165, 190] });
   const h = G.p.inv[G.p.sel];
-  const use = h && ITEMS[h.id].use;
+  const use = !driving() && h && ITEMS[h.id].use;
   if (use) buttons.push({ kind: 'use', label: use.verb, cx: VW - safe.r - (acts[0] ? 66 : 24), cy: hy - 24, r: 13, col: [230, 170, 50] });
   buttons.push({ kind: 'bag', label: 'SAC', cx: safe.l + 20, cy: hy - 24, r: 13, col: [200, 90, 120] });
   buttons.push({ kind: 'menu', x: VW - safe.r - 15, y: safe.t + 3, w: 12, h: 12 });
@@ -104,6 +104,16 @@ export function drawHUD() {
   drawText(`JOUR ${day()}`, right - textWidth(`JOUR ${day()}`), safe.t + 5, '#efe6d2');
   drawText(clock, right - textWidth(clock), safe.t + 12, '#c9bfa8');
   glyph(G.weather.rain > 0.25 ? 'rain' : h > 6 && h < 20 ? 'sun' : 'moon', right - textWidth(clock) - 8, safe.t + 12, G.weather.rain > 0.25 ? '#9fb6d8' : h > 6 && h < 20 ? '#f0d070' : '#c8d0f0');
+  // au volant : jauge d'essence et vitesse
+  const car = driving();
+  if (car) {
+    const y = safe.t + 22, x = right - 40;
+    drawText('ESSENCE', x - 1, y, '#d8ccb4');
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x - 1, y + 7, 42, 4);
+    ctx.fillStyle = car.fuel > 15 ? '#e0b040' : '#d05040'; ctx.fillRect(x, y + 8, Math.round(40 * car.fuel / 100), 2);
+    const kmh = `${Math.round(Math.abs(car.speed) * 3.2 * 3.6)} KM/H`;
+    drawText(kmh, x + 41 - textWidth(kmh), y + 14, '#efe6d2');
+  }
   // bouton menu
   const mb = buttons.find((b) => b.kind === 'menu');
   ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(mb.x, mb.y, 12, 12);
@@ -138,7 +148,7 @@ export function drawHUD() {
     if (b.a && b.a.sub) drawText(b.a.sub, b.cx - (textWidth(b.a.sub) >> 1), b.cy + b.r + 10, '#d8d0c0');
   }
   // repère au-dessus de la cible
-  if (G.target && !G.ui) {
+  if (G.target && !G.ui && G.target.kind !== 'drive') {
     const t = G.target;
     const [X, Y] = screenOf(t.x + 0.5, t.y + 0.5);
     const lift = t.kind === 'water' ? 6 : t.kind === 'wall' ? 34 : 26;
@@ -244,15 +254,6 @@ function layoutInv() {
   for (let i = 0; i < HOTBAR; i++) slots.push({ area: 'inv', i, x: x0 + 5 + i * SLOT, y: hy });
   L.infoY = hy + SLOT + 4;
   L.close = { x: x0 + pw - 13, y: y0 + 2, w: 11, h: 10 };
-  const c = p.cursor;
-  L.btns = [];
-  if (c) {
-    const u = ITEMS[c.id].use;
-    let bx = x0 + pw - 5;
-    const mk = (label, act) => { const w = textWidth(label) + 8; bx -= w; L.btns.push({ label, act, x: bx, y: L.infoY + 17, w, h: 11 }); bx -= 3; };
-    mk('JETER', 'drop');
-    if (u) mk(u.verb, 'use');
-  }
   return L;
 }
 
@@ -297,107 +298,176 @@ function drawInv() {
     if (s.area === 'fire' && s.i === 1 && !slotGet(s)) draw(B.icon('buche'), s.x + 1, s.y + 1), ctx.fillStyle = 'rgba(40,30,24,0.7)', ctx.fillRect(s.x + 1, s.y + 1, 17, 17);
     drawStack(slotGet(s), s.x + 1, s.y + 1);
   }
-  // infos sur la pile tenue
+  drawText('GLISSER : DÉPLACER', L.x0 + 6, L.infoY + 2, '#a89c88', null);
+  drawText('TOUCHER : DÉTAILS', L.x0 + 6, L.infoY + 9, '#8a806e', null);
+  ui.L = L;
+  // infobulle de l'objet touché
+  if (tip) {
+    const ts = slots.find((q) => key(q) === tip.key);
+    if (!ts || !slotGet(ts)) tip = null;
+    else drawTip(ts, L);
+  }
+  // pile glissée, au-dessus du doigt
   const c = p.cursor;
-  if (c) {
-    const d = ITEMS[c.id];
-    drawText(d.name, L.x0 + 6, L.infoY + 2, '#f6ecd4');
-    drawText(d.desc, L.x0 + 6, L.infoY + 9, '#b8ac98', null);
-    for (const b of L.btns) { ctx.fillStyle = b.act === 'use' ? '#4a8a5a' : '#6a5a4a'; ctx.fillRect(b.x, b.y, b.w, b.h); drawText(b.label, b.x + 4, b.y + 3, '#fff'); }
-  } else {
-    drawText('TOUCHER : PRENDRE / POSER', L.x0 + 6, L.infoY + 2, '#a89c88', null);
-    drawText('2 TOUCHERS : RANGER  -  APPUI LONG : MOITIÉ', L.x0 + 6, L.infoY + 9, '#8a806e', null);
-  }
-  // pile tenue au bout du doigt
-  if (c) {
-    const at = pointer ? [pointer.x - 8, pointer.y - 22] : (() => { const s = slots.find((q) => q.area === c.from?.area && q.i === c.from?.i); return s ? [s.x + 1, s.y - 6] : [L.x0 + L.pw / 2, L.infoY - 10]; })();
-    drawStack(c, at[0], at[1]);
-  }
+  if (c && pointer) drawStack(c, Math.round(pointer.x - 8), Math.round(pointer.y - 24));
   ui.L = L;
 }
 
 function slotAt(x, y) { return slots.find((s) => x >= s.x && x < s.x + SLOT - 1 && y >= s.y && y < s.y + SLOT - 1); }
 const key = (s) => `${s.area}${s.i}`;
 
-function tapSlot(s) {
-  const p = G.p, cur = p.cursor, here = slotGet(s);
-  const now = performance.now();
-  // double toucher : ranger dans l'autre zone
-  if (cur && lastTap && lastTap.key === key(s) && now - lastTap.t < 350 && cur.from && key(cur.from) === key(s)) {
-    quickMove(s, cur);
-    lastTap = null;
-    return;
-  }
-  lastTap = { key: key(s), t: now };
-  if (s.area === 'result') {
-    const m = matchRecipe(p.craft);
-    if (!m) return;
-    if (cur && !(sameKind(cur, m.out) && cur.n + m.out.n <= maxStack(cur))) return;
-    for (let i = 0; i < 4; i++) {
-      const c = p.craft[i];
-      if (!c || (m.recipe.tools || []).includes(c.id)) continue;
-      c.n--; if (!c.n) p.craft[i] = null;
-    }
-    if (cur) cur.n += m.out.n; else p.cursor = { ...m.out, from: null };
-    sfx('craft');
-    return;
-  }
-  if (!cur) {
-    if (!here) return;
-    p.cursor = { ...here, from: s };
-    slotSet(s, null);
-    sfx('pickup');
-    return;
-  }
-  if (!accepts(s, cur)) return;
-  const { from, ...st } = cur;
-  if (!here) { slotSet(s, st); p.cursor = null; }
+// --- glisser-déposer
+function startDrag(s, P) {
+  const here = slotGet(s);
+  if (!here || s.area === 'result') return false;
+  G.p.cursor = { ...here, from: s };
+  slotSet(s, null);
+  tip = null;
+  pointer = P;
+  sfx('pickup');
+  return true;
+}
+const stripFrom = (c) => { const { from, ...s } = c; return s; };
+// rend une pile à sa case d'origine (ou au sac, ou au sol)
+function giveBack(from, st) {
+  if (from && !slotGet(from) && accepts(from, st)) { slotSet(from, st); return; }
+  const r = addTo(G.p.inv, st);
+  if (r) drop(r);
+}
+function endDrag(t) {
+  const p = G.p, c = p.cursor;
+  if (!c) return;
+  p.cursor = null;
+  pointer = null;
+  const st = stripFrom(c), from = c.from;
+  if (!t || key(t) === key(from) || !accepts(t, st)) { giveBack(from, st); return; }
+  const here = slotGet(t);
+  if (!here) slotSet(t, st);
   else if (sameKind(here, st)) {
     const k = Math.min(st.n, maxStack(here) - here.n);
     here.n += k; st.n -= k;
-    p.cursor = st.n ? { ...st, from } : null;
-  } else { slotSet(s, st); p.cursor = { ...here, from: s }; }
+    if (st.n) giveBack(from, st);
+  } else if (accepts(from, here)) { slotSet(t, st); slotSet(from, here); } // échange
+  else { giveBack(from, st); return; }
   sfx('pickup');
 }
-function longSlot(s) {
-  const p = G.p, cur = p.cursor, here = slotGet(s);
-  if (s.area === 'result') return;
-  if (!cur) {
-    if (!here || here.n < 2) { if (here) tapSlot(s); return; }
-    const half = Math.ceil(here.n / 2);
-    here.n -= half;
-    p.cursor = { ...here, n: half, from: s };
-  } else {
-    if (!accepts(s, cur)) return;
-    if (!here) slotSet(s, { ...stripFrom(cur), n: 1 });
-    else if (sameKind(here, cur) && here.n < maxStack(here)) here.n++;
-    else return;
-    cur.n--; if (!cur.n) p.cursor = null;
+
+// --- fabrication : toucher le résultat range l'objet fabriqué dans le sac
+function craft() {
+  const p = G.p, m = matchRecipe(p.craft);
+  if (!m) return;
+  for (let i = 0; i < 4; i++) {
+    const c = p.craft[i];
+    if (!c || (m.recipe.tools || []).includes(c.id)) continue;
+    c.n--; if (!c.n) p.craft[i] = null;
   }
-  sfx('pickup');
+  const r = addTo(p.inv, m.out);
+  if (r) drop(r);
+  say(`+${m.out.n} ${ITEMS[m.out.id].name}`);
+  sfx('craft');
 }
-const stripFrom = (c) => { const { from, ...s } = c; return s; };
-function quickMove(s, cur) {
-  const p = G.p, ui = G.ui, st = stripFrom(cur);
-  let rest = st;
-  if (s.area === 'inv') {
-    if (ui.kind === 'box') rest = addTo(ui.obj.inv, st);
-    else if (ui.kind === 'fire') {
-      const i = ITEMS[st.id].fuel ? 1 : ITEMS[st.id].cook ? 0 : -1;
-      if (i >= 0) { const fs = ui.obj.fire.slots; rest = addTo(fs, st, i, i + 1); }
-    } else rest = s.i < HOTBAR ? addTo(p.inv, st, HOTBAR, p.inv.length) : addTo(p.inv, st, 0, HOTBAR);
-  } else rest = addTo(p.inv, st);
-  p.cursor = null;
-  if (rest) {
-    if (!slotGet(s)) slotSet(s, rest);
-    else { const r2 = addTo(p.inv, rest); if (r2) drop(r2); }
+
+// --- infobulle : nom, description, effets, et actions
+function tipLines(st) {
+  const d = ITEMS[st.id], u = d.use || {}, fx = [];
+  if (u.hunger) fx.push(`FAIM ${u.hunger > 0 ? '+' : ''}${u.hunger}`);
+  if (u.thirst) fx.push(`SOIF ${u.thirst > 0 ? '+' : ''}${u.thirst}`);
+  if (u.moral) fx.push(`MORAL +${u.moral}`);
+  if (u.health) fx.push(`SANTÉ +${u.health}`);
+  if (u.sick) fx.push('RISQUÉ');
+  if (d.charge && st.d !== undefined) fx.push(st.id === 'allumettes' ? `${st.d} RESTANTES` : `CHARGE ${Math.round(100 * st.d / d.charge)}%`);
+  if (d.fuel) fx.push(`BRÛLE ${d.fuel} MIN`);
+  if (d.cook) fx.push('À CUIRE');
+  if (st.read) fx.push('DÉJÀ LU');
+  return { name: d.name + (st.n > 1 ? ` X${st.n}` : ''), desc: wrap(d.desc, 32), fx: wrap(fx.join('  '), 32) };
+}
+function tipButtons(s, st) {
+  const d = ITEMS[st.id], ui = G.ui, out = [];
+  if (d.use && s.area === 'inv' && !driving()) out.push(['use', d.use.verb]);
+  if (st.n > 1 && (s.area === 'inv' || s.area === 'box')) out.push(['split', 'DIVISER']);
+  out.push(['store', s.area === 'inv' ? (ui.kind === 'box' ? 'DÉPOSER' : ui.kind === 'fire' ? 'AU FEU' : 'RANGER') : 'PRENDRE']);
+  out.push(['drop', 'JETER']);
+  return out;
+}
+function tipLayout(s, L) {
+  const st = slotGet(s), T = tipLines(st), btns = tipButtons(s, st);
+  const w = 136;
+  const rows = [];
+  let row = [], rw = 0;
+  for (const [act, label] of btns) {
+    const bw = textWidth(label) + 8;
+    if (rw + bw > w - 8 && row.length) { rows.push(row); row = []; rw = 0; }
+    row.push({ act, label, w: bw }); rw += bw + 3;
   }
-  sfx('pickup');
+  if (row.length) rows.push(row);
+  const h = 10 + T.desc.length * 7 + (T.fx[0] ? T.fx.length * 7 + 2 : 0) + rows.length * 14 + 4;
+  let x = Math.max(2, Math.min(view.W - w - 2, s.x + SLOT / 2 - w / 2));
+  let y = s.y > L.y0 + L.ph / 2 ? s.y - h - 2 : s.y + SLOT + 1;
+  y = Math.max(2, Math.min(view.H - h - 2, y));
+  const B = [];
+  let by = y + h - rows.length * 14 - 2;
+  for (const r of rows) {
+    let bx = x + 4;
+    for (const b of r) { B.push({ ...b, x: bx, y: by, h: 11 }); bx += b.w + 3; }
+    by += 14;
+  }
+  return { x, y, w, h, T, B };
+}
+function drawTip(s, L) {
+  const t = tipLayout(s, L);
+  tip.box = t;
+  panel(t.x, t.y, t.w, t.h, [86, 74, 60]);
+  drawText(t.T.name, t.x + 4, t.y + 3, '#fff4dc');
+  let y = t.y + 10;
+  for (const l of t.T.desc) { drawText(l, t.x + 4, y, '#d8ccb4', null); y += 7; }
+  if (t.T.fx[0]) { y += 2; for (const l of t.T.fx) { drawText(l, t.x + 4, y, '#a8d08c', null); y += 7; } }
+  for (const b of t.B) {
+    ctx.fillStyle = b.act === 'use' ? '#4a8a5a' : b.act === 'drop' ? '#8a4a3c' : '#5a5a6a';
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    drawText(b.label, b.x + 4, b.y + 3, '#fff');
+  }
+}
+function tipAction(act) {
+  const ts = slots.find((q) => key(q) === tip.key), p = G.p, ui = G.ui;
+  const st = ts && slotGet(ts);
+  if (!st) { tip = null; return; }
+  if (act === 'use') {
+    const prev = G.ui;
+    useItem(ts.i);
+    if (G.ui && G.ui.kind === 'text' && G.ui !== prev) G.ui.prev = prev;
+    else if (!G.ui) G.ui = prev;
+  } else if (act === 'split') {
+    const half = Math.floor(st.n / 2), arr = ts.area === 'inv' ? p.inv : ui.obj.inv;
+    const i = arr.findIndex((q) => !q);
+    if (i < 0) { say('Pas de case libre.'); return; }
+    st.n -= half; arr[i] = { ...st, n: half };
+    sfx('pickup');
+  } else if (act === 'store') {
+    slotSet(ts, null);
+    let rest = st;
+    if (ts.area === 'inv') {
+      if (ui.kind === 'box') rest = addTo(ui.obj.inv, st);
+      else if (ui.kind === 'fire') {
+        const i = ITEMS[st.id].fuel ? 1 : ITEMS[st.id].cook ? 0 : -1;
+        if (i >= 0) rest = addTo(ui.obj.fire.slots, st, i, i + 1);
+      } else rest = ts.i < HOTBAR ? addTo(p.inv, st, HOTBAR, p.inv.length) : addTo(p.inv, st, 0, HOTBAR);
+    } else rest = addTo(p.inv, st);
+    if (rest) slotSet(ts, rest);
+    tip = null;
+    sfx('pickup');
+  } else if (act === 'drop') {
+    slotSet(ts, null);
+    drop(st);
+    say(`${ITEMS[st.id].name} : posé au sol.`);
+    tip = null;
+    sfx('cloth');
+  }
 }
 
 export function closeUI() {
   const p = G.p, ui = G.ui;
   if (!ui) return;
+  tip = null;
   if (ui.kind === 'text') { G.ui = ui.prev || null; return; }
   if (p.cursor) { const r = addTo(p.inv, stripFrom(p.cursor)); if (r) drop(r); p.cursor = null; }
   for (let i = 0; i < 4; i++) if (p.craft[i]) { const r = addTo(p.inv, p.craft[i]); if (r) drop(r); p.craft[i] = null; }
@@ -497,15 +567,13 @@ function down(e) {
   e.preventDefault();
   initAudio();
   const [x, y] = toGame(e);
-  const P = { id: e.pointerId, x, y, x0: x, y0: y, t: performance.now(), long: false };
+  const P = { id: e.pointerId, x, y, x0: x, y0: y, t: performance.now() };
   pts.set(e.pointerId, P);
   if (G.mode === 'title' || G.mode === 'dead') return;
   if (G.p.sleeping) return;
   const ui = G.ui;
   if (ui && (ui.kind === 'inv' || ui.kind === 'box' || ui.kind === 'fire')) {
-    pointer = P;
-    const s = slotAt(x, y);
-    if (s) P.timer = setTimeout(() => { if (pts.get(P.id) === P && Math.hypot(P.x - P.x0, P.y - P.y0) < 5) { P.long = true; longSlot(s); } }, 420);
+    P.slot = slotAt(x, y);
     return;
   }
   if (ui) return;
@@ -521,6 +589,8 @@ function moveP(e) {
   if (!P) return;
   const [x, y] = toGame(e);
   P.x = x; P.y = y;
+  // dans l'inventaire : au-delà de 4 px, le toucher devient un glisser
+  if (P.slot && !P.drag && Math.hypot(x - P.x0, y - P.y0) > 4) P.drag = startDrag(P.slot, P) || 'none';
   for (const [st, k] of [[stick, ''], [aimStick, 'a']]) {
     if (!st || st.id !== e.pointerId) continue;
     let dx = x - st.x0, dy = y - st.y0;
@@ -535,10 +605,10 @@ function up(e) {
   const P = pts.get(e.pointerId);
   pts.delete(e.pointerId);
   if (!P) return;
-  clearTimeout(P.timer);
   if (stick && stick.id === e.pointerId) { stick = null; input.x = input.y = input.mag = 0; return; }
   if (aimStick && aimStick.id === e.pointerId) { aimStick = null; input.ax = input.ay = input.amag = 0; return; }
-  if (P.long) { pointer = null; return; }
+  if (P.drag === true) { endDrag(slotAt(P.x, P.y)); return; }
+  if (P.drag === 'none') return; // glissé depuis une case vide : rien
   const { x, y } = P;
   if (G.mode === 'title') { onStart && onStart(); return; }
   if (G.mode === 'dead') { if (performance.now() - G.deadAt > 1500) { wipe(); newGame(); } return; }
@@ -556,23 +626,24 @@ function up(e) {
       return;
     }
     const L = ui.L;
-    pointer = null;
     if (!L) return;
-    if (inside(L.close, x, y)) { closeUI(); return; }
-    for (const b of L.btns) if (inside(b, x, y)) {
-      const c = G.p.cursor;
-      if (b.act === 'drop') { drop(stripFrom(c)); G.p.cursor = null; sfx('cloth'); say(`${ITEMS[c.id].name} : posé au sol.`); }
-      if (b.act === 'use') useCursor();
-      return;
+    if (tip && tip.box) {
+      const b = tip.box.B.find((q) => inside(q, x, y));
+      if (b) { tipAction(b.act); return; }
+      if (inside(tip.box, x, y)) return;
     }
+    if (inside(L.close, x, y)) { closeUI(); return; }
     if (L.light && ui.kind === 'fire' && !ui.obj.fire.lit && inside(L.light, x, y)) { lightFromUI(ui.obj); return; }
     const s = slotAt(x, y);
-    if (s) { tapSlot(s); return; }
-    if (!inside({ x: L.x0, y: L.y0, w: L.pw, h: L.ph }, x, y)) {
-      // toucher hors du panneau : on pose la pile tenue au sol, sinon on ferme
-      if (G.p.cursor) { drop(stripFrom(G.p.cursor)); G.p.cursor = null; sfx('cloth'); }
-      else closeUI();
+    if (s) {
+      if (s.area === 'result') { tip = null; craft(); return; }
+      const k = key(s);
+      tip = slotGet(s) && (!tip || tip.key !== k) ? { key: k } : null;
+      if (tip) sfx('ui');
+      return;
     }
+    if (tip) { tip = null; return; }
+    if (!inside({ x: L.x0, y: L.y0, w: L.pw, h: L.ph }, x, y)) closeUI();
     return;
   }
   const b = P.btn;
@@ -584,18 +655,6 @@ function up(e) {
   else if (b.kind === 'menu') { G.ui = { kind: 'menu' }; sfx('ui'); }
 }
 
-// utiliser la pile tenue : on la pose dans une case libre le temps de l'action
-function useCursor() {
-  const p = G.p, c = p.cursor;
-  let i = p.inv.findIndex((s) => !s);
-  if (i < 0) return;
-  p.inv[i] = stripFrom(c);
-  p.cursor = null;
-  const prev = G.ui;
-  useItem(i);
-  if (G.ui && G.ui.kind === 'text' && G.ui !== prev) G.ui.prev = prev;
-  else if (!G.ui) G.ui = prev;
-}
 function lightFromUI(o) {
   const tool = G.p.inv.find((s) => s && (s.id === 'briquet' || s.id === 'allumettes') && s.d > 0);
   if (!tool) { say('Il faut des allumettes ou un briquet.'); return; }

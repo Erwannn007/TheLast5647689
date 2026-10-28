@@ -12,8 +12,12 @@ la faim, la soif, la fatigue, le moral… et ce que les gens ont laissé derriè
 - Bouton vert : interagir avec ce qui est marqué d'une petite flèche (ouvrir, boire, dormir, couper…).
 - Bouton jaune : utiliser l'objet tenu (manger, boire, lire, poser un feu…).
 - **SAC** : l'inventaire (3×9 + barre rapide, grille de fabrication 2×2).
-  - toucher : prendre / poser une pile ; deux touchers : ranger dans l'autre zone ;
-  - appui long : prendre la moitié (ou poser un seul objet).
+  - glisser un objet sur une case : le déplacer (les mêmes objets s'empilent, sinon on échange) ;
+  - toucher un objet : infobulle avec ses effets et les actions (utiliser, diviser, ranger, jeter) ;
+  - toucher le résultat de fabrication : fabriquer.
+- **Voitures** : CONDUIRE à côté d'une voiture. Le joystick gauche indique où aller : la voiture
+  accélère et braque vers lui, recule s'il pointe derrière. Beaucoup sont à sec : un jerrican
+  tenu en main permet de faire le PLEIN. Phares la nuit, SORTIR à l'arrêt.
 - Sur ordinateur : flèches / ZQSD marcher, `IJKL` viser, `E` interagir, `F` utiliser, `Tab` inventaire, `1`–`9` barre rapide.
 
 Quelques recettes (2×2, sans forme) : drap + couteau → 3 chiffons ; 2 chiffons → bandage ;

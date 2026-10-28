@@ -4,9 +4,11 @@ import { World, generate, W, SOLID, LABEL, CONTAINERS } from './world.js';
 import { ITEMS, makeStack, COOK_TIME, NOTES, PHOTOS, JOURNALS, BROADCASTS } from './items.js';
 import { isWater } from './sprites/tiles.js';
 import { DIRS, angleFromWorld, dirOfAngle } from './sprites/player.js';
-import { sfx } from './audio.js';
+import { sfx, setEngine } from './audio.js';
+import { carSize } from './sprites/cars.js';
+import { isRoad } from './sprites/tiles.js';
 
-const SAVE_KEY = 'thelast-save-v2'; // v2 : routes élargies, voitures 4x2
+const SAVE_KEY = 'thelast-save-v3'; // v3 : voitures libres (conduite)
 const R = 0.17; // demi-taille du joueur (tuiles)
 const TWIST_MAX = Math.PI / 2; // le buste tourne au plus d'un quart de tour par rapport aux jambes
 const angDiff = (a, b) => { let d = (a - b) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; return d; };
@@ -90,14 +92,114 @@ function move(p, vx, vy, dt) {
   let nx = p.x + vx * dt;
   let b = hit(nx, p.y, R);
   if (b) nx = vx > 0 ? b[0] - R - 1e-4 : vx < 0 ? b[2] + R + 1e-4 : p.x;
-  if (hit(nx, p.y, R)) nx = p.x;
+  if (hit(nx, p.y, R) || carHit(nx, p.y, R)) nx = p.x;
   p.x = nx;
   let ny = p.y + vy * dt;
   b = hit(p.x, ny, R);
   if (b) ny = vy > 0 ? b[1] - R - 1e-4 : vy < 0 ? b[3] + R + 1e-4 : p.y;
-  if (hit(p.x, ny, R)) ny = p.y;
+  if (hit(p.x, ny, R) || carHit(p.x, ny, R)) ny = p.y;
   p.y = ny;
 }
+
+// ---------------------------------------------------------------- voitures (rectangles orientés)
+export const carBox = (c, x = c.x, y = c.y, ang = c.ang) => {
+  const [hl, hw] = carSize(c.v);
+  return { x, y, ux: Math.cos(ang), uy: Math.sin(ang), hl, hw };
+};
+// deux rectangles orientés se chevauchent-ils ? (axes séparateurs)
+function overlap(A, B) {
+  for (const [ax, ay] of [[A.ux, A.uy], [-A.uy, A.ux], [B.ux, B.uy], [-B.uy, B.ux]]) {
+    const ra = A.hl * Math.abs(A.ux * ax + A.uy * ay) + A.hw * Math.abs(-A.uy * ax + A.ux * ay);
+    const rb = B.hl * Math.abs(B.ux * ax + B.uy * ay) + B.hw * Math.abs(-B.uy * ax + B.ux * ay);
+    if (Math.abs((A.x - B.x) * ax + (A.y - B.y) * ay) > ra + rb) return false;
+  }
+  return true;
+}
+const aabb = (b) => ({ x: (b[0] + b[2]) / 2, y: (b[1] + b[3]) / 2, ux: 1, uy: 0, hl: (b[2] - b[0]) / 2, hw: (b[3] - b[1]) / 2 });
+export function carHit(x, y, r, except) {
+  const me = { x, y, ux: 1, uy: 0, hl: r, hw: r };
+  for (const c of G.world.cars) if (c !== except && Math.abs(c.x - x) < 3 && Math.abs(c.y - y) < 3 && overlap(carBox(c), me)) return c;
+  return null;
+}
+// une voiture à cette place toucherait-elle un mur, un arbre, l'eau, une autre voiture ?
+export function carBlocked(c, x, y, ang) {
+  const A = carBox(c, x, y, ang), bx = [];
+  for (let cy = Math.floor(y - 2.3); cy <= Math.floor(y + 2.3); cy++) for (let cx = Math.floor(x - 2.3); cx <= Math.floor(x + 2.3); cx++) cellBoxes(cx, cy, bx);
+  for (const b of bx) if (overlap(A, aabb(b))) return true;
+  for (const o of G.world.cars) if (o !== c && Math.abs(o.x - x) < 5 && Math.abs(o.y - y) < 5 && overlap(A, carBox(o))) return true;
+  return false;
+}
+// point du rectangle le plus proche (pour viser une voiture)
+function nearestOnCar(c, px, py) {
+  const B = carBox(c), dx = px - c.x, dy = py - c.y;
+  const a = Math.max(-B.hl, Math.min(B.hl, dx * B.ux + dy * B.uy)), b = Math.max(-B.hw, Math.min(B.hw, -dx * B.uy + dy * B.ux));
+  return [c.x + a * B.ux - b * B.uy, c.y + a * B.uy + b * B.ux];
+}
+export const driving = () => (G.p.driving >= 0 ? G.world.cars[G.p.driving] : null);
+
+function enterCar(c) {
+  const p = G.p;
+  p.driving = G.world.cars.indexOf(c);
+  p.sitting = false; p.act = null;
+  sfx('door');
+  if (c.fuel > 0) { sfx('starter'); say('Le moteur tousse, puis démarre.'); }
+  else say('Le réservoir est vide. Il faut un jerrican.');
+}
+function exitCar() {
+  const p = G.p, c = driving();
+  if (Math.abs(c.speed) > 0.6) { say('Arrêtez-vous d\'abord.'); return; }
+  const B = carBox(c);
+  // côté conducteur, puis passager, puis derrière, puis devant
+  for (const [a, b] of [[0.3, -(B.hw + 0.32)], [0.3, B.hw + 0.32], [-(B.hl + 0.35), 0], [B.hl + 0.35, 0]]) {
+    const x = c.x + a * B.ux - b * B.uy, y = c.y + a * B.uy + b * B.ux;
+    if (!hit(x, y, R) && !carHit(x, y, R)) {
+      p.x = x; p.y = y; p.driving = -1; c.speed = 0;
+      p.legsA = Math.atan2(B.ux - B.uy, B.ux + B.uy);
+      setEngine(0, false);
+      sfx('door');
+      return;
+    }
+  }
+  say('Impossible d\'ouvrir la portière ici.');
+}
+
+// conduite : le joystick donne la direction voulue ; on accélère vers elle, on recule si elle est derrière
+let emptyWarned = 0;
+function drive(c, dt, input) {
+  const p = G.p, w = G.world;
+  let target = 0, steer = 0;
+  if (input.mag > 0.15 && !(G.ui && G.ui.kind !== 'text')) {
+    const sx = input.x, sy = input.y;
+    const wx = sx / 32 + sy / 16, wy = sy / 16 - sx / 32;
+    const want = Math.atan2(wy, wx);
+    const d = angDiff(want, c.ang);
+    if (Math.abs(d) <= 1.95) { target = 9 * input.mag; steer = d; }
+    else { target = -3.2 * input.mag; steer = angDiff(want, c.ang + Math.PI); }
+  }
+  if (c.fuel <= 0) {
+    target = 0;
+    if (input.mag > 0.15 && G.clock - emptyWarned > 4) { emptyWarned = G.clock; say('Plus d\'essence.'); }
+  }
+  // hors de la route, ça secoue et ça freine
+  const t = w.T(Math.floor(c.x), Math.floor(c.y));
+  if (!isRoad(t) && t !== 6 && t !== 4) target *= 0.55;
+  const acc = Math.sign(target) !== Math.sign(c.speed) && Math.abs(c.speed) > 0.2 ? 11 : target ? 4.5 : 5;
+  c.speed += Math.max(-acc * dt, Math.min(acc * dt, target - c.speed));
+  // on ne tourne qu'en roulant
+  const turn = Math.max(-1, Math.min(1, steer * 1.6)) * 2.1 * Math.min(1, Math.abs(c.speed) / 2.2) * dt;
+  const na = c.ang + turn;
+  const nx = c.x + Math.cos(na) * c.speed * dt, ny = c.y + Math.sin(na) * c.speed * dt;
+  if (!carBlocked(c, nx, ny, na)) { c.x = nx; c.y = ny; c.ang = na; }
+  else if (!carBlocked(c, c.x, c.y, na)) c.ang = na, c.speed *= 0.3;
+  else {
+    if (Math.abs(c.speed) > 3) { sfx('crash'); say('Boum.'); }
+    c.speed = -c.speed * 0.15;
+  }
+  c.fuel = Math.max(0, c.fuel - Math.abs(c.speed) * dt * 0.3);
+  p.x = c.x; p.y = c.y;
+  setEngine(Math.min(1, Math.abs(c.speed) / 9), c.fuel > 0);
+}
+
 // rien de solide entre le joueur et le point (hors case visée)
 function clear(x0, y0, x1, y1, skip) {
   const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 0.07);
@@ -179,6 +281,17 @@ function sicken() { G.p.sick = Math.max(G.p.sick, 360); say('Vous ne vous sentez
 
 function actionsFor(t) {
   const w = G.world, p = G.p;
+  if (t.kind === 'car') {
+    const c = t.car, a = [{ label: 'CONDUIRE', fn: () => enterCar(c) }];
+    if (holding('jerrican')) a.unshift({ label: 'PLEIN', fn: () => busy('fuel', 2.5, () => {
+      const j = held(), k = Math.min(j.d || 0, 100 - c.fuel);
+      if (k <= 0) { say(j.d ? 'Le réservoir est déjà plein.' : 'Le jerrican est vide.'); return; }
+      j.d -= k; c.fuel += k;
+      say(`Réservoir : ${Math.round(c.fuel)} %.`);
+    }, { anim: 'idle', sound: 'pour' }) });
+    a.push({ label: 'COFFRE', fn: () => openUI({ kind: 'box', obj: c }) });
+    return a;
+  }
   if (t.kind === 'water') {
     const a = waterActions('eau', true, () => true);
     if (holding('canne')) a.unshift({ label: 'PÊCHER', fn: () => fish(t) });
@@ -328,6 +441,11 @@ export function findTarget() {
       consider({ kind: 'water', x, y }, tx, ty, 0.7, [[x, y]]);
     }
   }
+  for (const c of w.cars) {
+    if (Math.abs(c.x - p.x) > 3.5 || Math.abs(c.y - p.y) > 3.5) continue;
+    const [tx, ty] = nearestOnCar(c, p.x, p.y);
+    consider({ kind: 'car', car: c, x: Math.floor(tx), y: Math.floor(ty) }, tx, ty, 0.95, []);
+  }
   return best;
 }
 
@@ -446,15 +564,22 @@ export function update(dt, input) {
   const dm = dt * scale;
   G.time += dm;
 
+  // au volant : la voiture remplace la marche
+  const car = driving();
+  if (car) {
+    drive(car, dt, input);
+    p.moving = false; p.aiming = false;
+    G.target = { kind: 'drive', x: Math.floor(car.x), y: Math.floor(car.y), acts: [{ label: 'SORTIR', fn: exitCar }] };
+  }
   // déplacement
   p.moving = false;
   p.back = false;
   const blocked = G.ui && G.ui.kind !== 'text' ? true : false;
   // visée (joystick droit) : angle dans le plan caméra, 0 = vers la caméra
-  const aiming = !p.sleeping && !blocked && input.amag > 0.3;
+  const aiming = !car && !p.sleeping && !blocked && input.amag > 0.3;
   const aimA = aiming ? Math.atan2(input.ax, input.ay * 2) : null;
   if (p.legsA === undefined) p.legsA = p.dir * Math.PI / 4;
-  if (!p.sleeping && !blocked && input.mag > 0.15) {
+  if (!car && !p.sleeping && !blocked && input.mag > 0.15) {
     if (p.act && !p.act.locked) { p.act = null; }
     p.sitting = false;
     // joystick en écran -> monde (iso 2:1)
@@ -561,7 +686,8 @@ export function update(dt, input) {
   updateFires(dm);
   G.swayT += dt * (1 + Math.min(1.5, wt.rain * 1.5) * 1.2);
 
-  if (!p.act && !p.sleeping && !blocked) G.target = findTarget();
+  if (car) { /* la cible est la sortie */ }
+  else if (!p.act && !p.sleeping && !blocked) G.target = findTarget();
   else if (!p.act) G.target = null;
 
   for (const m of G.msgs) m.t -= dt;

@@ -110,6 +110,15 @@ export const ICONS = {
     { a: [-3.5, 1.2, -3], r1: 1.8, ramp: METAL, group: 2 },
     { a: [6, 0, 7], b: [6.5, 0, -1], r1: 0.25, ramp: CREAM, group: 3 },
   ]),
+  jerrican: () => solid([
+    box(-4.5, 4.5, -2, 2, 0, 10, FABRIC.red, (q) => {
+      if (q.face === 'l' && Math.abs(q.u - (q.z - 5)) < 0.6 && q.z > 1 && q.z < 9) return Math.max(0, q.shade - 1); // nervure en X
+      if (q.face === 'l' && Math.abs(q.u + (q.z - 5)) < 0.6 && q.z > 1 && q.z < 9) return Math.max(0, q.shade - 1);
+      return plain(q);
+    }),
+    box(-4, 0.5, -1, 1, 10, 12, FABRIC.red, plain), // poignée
+    sm(cylinder(3, 0, 1, 10, 12.5, METAL)), // bouchon
+  ]),
   radio: () => solid([
     box(-5, 5, -2, 2, 0, 7, DARKWOOD, (q) => {
       if (q.face === 'l' && q.u < 1 && q.z > 1.5 && q.z < 5.5) return ((q.u + q.z * 0 + 64) % 1.5) < 0.6 ? 0 : 1;

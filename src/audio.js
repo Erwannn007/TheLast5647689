@@ -1,6 +1,6 @@
 // Son entièrement synthétisé (Web Audio) : vent, pluie, oiseaux, grillons, feu, piano lointain, bruitages.
 let A = null, master, sfxBus, amb, verb, noiseBuf;
-let wind, rainG, rainF, windG;
+let wind, rainG, rainF, windG, eng, engG, engF;
 let muted = false;
 const env = { rain: 0, night: false, inside: false, fire: 0, outside: true };
 
@@ -28,7 +28,19 @@ export function initAudio() {
   // pluie : bruit clair
   const rn = loopNoise(); rainF = A.createBiquadFilter(); rainF.type = 'bandpass'; rainF.frequency.value = 2400; rainF.Q.value = 0.4;
   rainG = A.createGain(); rainG.gain.value = 0; rn.connect(rainF); rainF.connect(rainG); rainG.connect(amb);
+  // moteur : dents de scie graves filtrées, le régime suit la vitesse
+  eng = A.createOscillator(); eng.type = 'sawtooth'; eng.frequency.value = 38;
+  engF = A.createBiquadFilter(); engF.type = 'lowpass'; engF.frequency.value = 240;
+  engG = A.createGain(); engG.gain.value = 0;
+  eng.connect(engF); engF.connect(engG); engG.connect(sfxBus); eng.start();
   tick();
+}
+export function setEngine(rpm, on) {
+  if (!A) return;
+  const t = A.currentTime;
+  engG.gain.setTargetAtTime(on ? 0.05 + rpm * 0.05 : 0, t, 0.15);
+  eng.frequency.setTargetAtTime(36 + rpm * 70, t, 0.2);
+  engF.frequency.setTargetAtTime(220 + rpm * 500, t, 0.2);
 }
 function loopNoise() { const s = A.createBufferSource(); s.buffer = noiseBuf; s.loop = true; s.start(); return s; }
 
@@ -90,6 +102,9 @@ const FX = {
     noise(2.4, { type: 'bandpass', f: 1800, q: 0.6, vol: 0.08 });
     for (let i = 0; i < 5; i++) tone(rr(200, 330), 0.25, { type: 'square', vol: 0.006, at: 0.6 + i * 0.28 });
   },
+  starter() { for (let i = 0; i < 5; i++) noise(0.09, { type: 'bandpass', f: 600, q: 2, vol: 0.12, at: i * 0.11 }); tone(45, 0.8, { type: 'sawtooth', vol: 0.06, at: 0.55, to: 60 }); },
+  crash() { noise(0.5, { f: 900, vol: 0.35, to: 200 }); tone(60, 0.4, { vol: 0.2 }); for (let i = 0; i < 4; i++) tone(rr(1500, 3500), 0.2, { vol: 0.03, at: 0.05 + i * 0.05 }); },
+  pour() { noise(0.7, { type: 'bandpass', f: 700, q: 3, vol: 0.06 }); },
   death() { tone(110, 3, { vol: 0.15, to: 55 }); tone(165, 3, { vol: 0.08, to: 82 }); },
 };
 export function sfx(name, arg) { if (A && !muted && FX[name]) FX[name](arg); }

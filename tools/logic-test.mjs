@@ -74,3 +74,51 @@ r = at(0, 0, 0, -1); // à l'arrêt, vise derrière : les pieds pivotent
 ok(Math.abs(r.twist) <= 2 && r.dir === 4, `à l'arrêt, les pieds suivent (torsion ${r.twist})`);
 r = at(0, 1, 0, 0);
 ok(r.twist === 0 && r.legs === 0, 'sans visée, le buste revient dans l\'axe');
+// conduite
+{
+  game.newGame(); G.ui = null;
+  const w = G.world;
+  // une voiture qui a de la place devant elle
+  const free = (q) => [1, 2, 3, 4].every((d) => !game.carBlocked(q, q.x + Math.cos(q.ang) * d, q.y + Math.sin(q.ang) * d, q.ang));
+  const c = w.cars.find(free) || w.cars[0];
+  c.fuel = 50;
+  const B = game.carBox(c);
+  G.p.x = c.x; G.p.y = c.y + B.hw + 0.4;
+  const t = game.findTarget();
+  ok(t && t.kind === 'car' && t.acts.some((a) => a.label === 'CONDUIRE'), 'une voiture se conduit');
+  t.acts.find((a) => a.label === 'CONDUIRE').fn();
+  ok(game.driving() === c, 'au volant');
+  // avancer : le joystick pointe le nez de la voiture (écran : +x monde = droite-bas)
+  const x0 = c.x, y0 = c.y, f0 = c.fuel;
+  const fwd = { x: Math.cos(c.ang) - Math.sin(c.ang), y: (Math.cos(c.ang) + Math.sin(c.ang)) / 2 };
+  const l = Math.hypot(fwd.x, fwd.y);
+  for (let i = 0; i < 60; i++) game.update(1 / 60, { x: fwd.x / l, y: fwd.y / l, mag: 1 });
+  ok(Math.hypot(c.x - x0, c.y - y0) > 1 && c.fuel < f0, `la voiture avance (${Math.hypot(c.x - x0, c.y - y0).toFixed(1)} cases)`);
+  ok(G.p.x === c.x && G.p.y === c.y, 'le joueur suit la voiture');
+  // marche arrière : joystick dans l'autre sens
+  for (let i = 0; i < 90; i++) game.update(1 / 60, { x: -fwd.x / l, y: -fwd.y / l, mag: 1 });
+  ok(c.speed < 0, `marche arrière (${c.speed.toFixed(1)})`);
+  // panne sèche
+  c.fuel = 0;
+  for (let i = 0; i < 120; i++) game.update(1 / 60, { x: fwd.x / l, y: fwd.y / l, mag: 1 });
+  ok(Math.abs(c.speed) < 0.1, 'sans essence, elle ne roule plus');
+  // on ne traverse pas les murs : on fonce droit vers une maison
+  c.fuel = 100;
+  let crossed = false;
+  for (let i = 0; i < 600; i++) {
+    game.update(1 / 60, { x: 0, y: -1, mag: 1 });
+    const bx = [];
+    for (let cy = Math.floor(c.y) - 2; cy <= Math.floor(c.y) + 2; cy++) for (let cx = Math.floor(c.x) - 2; cx <= Math.floor(c.x) + 2; cx++) game.cellBoxes(cx, cy, bx);
+    const A = game.carBox(c);
+    if (bx.some((b) => { const px = (b[0] + b[2]) / 2 - c.x, py = (b[1] + b[3]) / 2 - c.y; return Math.abs(px * A.ux + py * A.uy) < A.hl - 0.3 && Math.abs(-px * A.uy + py * A.ux) < A.hw - 0.3; })) crossed = true;
+  }
+  ok(!crossed, 'la voiture ne traverse rien');
+  for (let i = 0; i < 120; i++) game.update(1 / 60, { x: 0, y: 0, mag: 0 });
+  const out = G.target.acts[0];
+  ok(out.label === 'SORTIR', 'bouton sortir');
+  out.fn();
+  ok(!game.driving() && !game.carHit(G.p.x, G.p.y, 0.17), 'sortie à côté de la voiture');
+  // sauvegarde avec les voitures
+  G.mode = 'play'; game.save(); const n = G.world.cars.length; game.load();
+  ok(G.world.cars.length === n, 'voitures sauvegardées');
+}

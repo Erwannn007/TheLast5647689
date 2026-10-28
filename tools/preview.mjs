@@ -44,10 +44,10 @@ const groups = {
     const c = await import('../src/sprites/cars.js');
     const t = Date.now();
     const s = [];
-    for (let v = 0; v < 10; v++) s.push(c.carSprite(v, v < 5 ? 0 : 3).img);
-    for (const k of [1, 2]) s.push(c.carSprite(7, k).img);
-    console.log('ms par voiture', (Date.now() - t) / 12);
-    sheet('cars', s, { scale: 3, cols: 4 });
+    for (let i = 0; i < 16; i++) s.push(c.carSprite(3 + 5 * 7, i).img);
+    for (let v = 0; v < 5; v++) s.push(c.carSprite(v + 5 * v, 2).img);
+    console.log('ms par voiture', (Date.now() - t) / 21);
+    sheet('cars', s, { scale: 3, cols: 7 });
   },
   async tiles() {
     const t = await import('../src/sprites/tiles.js');

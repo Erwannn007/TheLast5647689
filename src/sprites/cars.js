@@ -3,7 +3,7 @@
 // par la matière : vitres et montants, phares, feux, calandre, pare-chocs, portières, poussière, rouille.
 // À l'échelle du personnage (~32 unités = 1,80 m) : une berline fait 4 cases sur 2.
 import { hash, ramp } from '../raster.js';
-import { box, rotPrims, renderSolids } from '../solids.js';
+import { box, turnPrims, renderSolids } from '../solids.js';
 import { CARPAINT, GLASS, METAL, STEEL, TIRE, CREAM, RUST, INTERIOR } from '../palette.js';
 
 export const PAINTS = [
@@ -112,14 +112,13 @@ function wheel(wu, vc, r, halfw, flat) {
   };
 }
 
-export function carPrims(v) {
+export function carPrims(v, cu = 0, cv = 0) {
   const B = BODIES[v % BODIES.length];
   const paint = PAINTS[Math.floor(v / BODIES.length) % PAINTS.length];
   const seed = v * 131 + 7;
   const dusty = 0.03 + hash(v, 1, 3) * 0.07, rusty = hash(v, 2, 3) < 0.35;
   const flat = hash(v, 3, 3) < 0.3 ? (hash(v, 4, 3) * 4) | 0 : -1;
   const broken = hash(v, 5, 3) < 0.25;
-  const cu = 24, cv = 8; // centre de la voiture : 4 cases le long de +u, 2 le long de +v
   const H = hull(B, cu, cv);
   const glassAt = (q) => {
     const x = q.u - cu, [t, slope] = H.top(q.u), side = Math.abs(q.n[1]) > 0.6;
@@ -180,6 +179,14 @@ export function carPrims(v) {
   return prims;
 }
 
-export function carSprite(v, k) {
-  return renderSolids(rotPrims(carPrims(v), k), 176, 128, 88, 78);
+// Les voitures roulent librement : 16 orientations (22,5°), le nez vers l'angle monde a = i·π/8
+// (0 = vers +x). Le sprite est centré sur le milieu de la voiture.
+export const CAR_DIRS = 16;
+export function carSprite(v, i) {
+  return renderSolids(turnPrims(carPrims(v), (i % CAR_DIRS) * Math.PI * 2 / CAR_DIRS), 100, 100, 50, 62);
+}
+// demi-longueur et demi-largeur en tuiles (pour les collisions)
+export function carSize(v) {
+  const B = BODIES[v % BODIES.length];
+  return [B.L / 16, B.hw / 16];
 }

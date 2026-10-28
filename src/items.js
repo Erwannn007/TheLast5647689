@@ -33,6 +33,7 @@ export const ITEMS = {
   allumettes: { name: 'Allumettes', desc: 'Allume un feu.', stack: 1, charge: 10 },
   briquet: { name: 'Briquet', desc: 'Allume un feu.', stack: 1, charge: 30 },
   canne: { name: 'Canne à pêche', desc: 'Tenez-la face à l\'eau.', stack: 1, tool: true },
+  jerrican: { name: 'Jerrican', desc: 'De l\'essence. Tenez-le près d\'une voiture.', stack: 1, charge: 100 },
   radio: { name: 'Radio', desc: 'Peut-être que quelqu\'un parle encore.', stack: 1, charge: 100, use: { verb: 'ÉCOUTER' } },
   // --- matériaux ---
   buche: { name: 'Bûche', desc: 'Brûle longtemps.', stack: 16, fuel: 90 },
@@ -72,10 +73,10 @@ export const LOOT = {
   bathsink: { rolls: [0, 3], table: [['bandage', 4, 2], ['comprimes', 4, 2], ['chiffon', 3, 2]] },
   tv: { rolls: [0, 1], table: [['piles', 1, 2], ['journal', 1, 1]] },
   shelf: { rolls: [1, 5], table: [['haricots', 6, 3], ['soupe', 5, 3], ['chips', 5, 2], ['soda', 5, 3], ['eau', 5, 2], ['biscuits', 4, 2], ['cereales', 3, 2], ['chocolat', 4, 3], ['piles', 2, 2], ['allumettes', 2, 1], ['bandage', 1, 2]] },
-  crate: { rolls: [1, 3], table: [['buche', 4, 3], ['ficelle', 3, 2], ['hache', 2, 1], ['pied_de_biche', 2, 1], ['canne', 2, 1], ['piles', 2, 2], ['bouteille', 2, 1]] },
-  trash: { rolls: [0, 2], table: [['journal', 4, 2], ['bouteille', 3, 1], ['conserve_vide', 4, 1], ['chiffon', 2, 1], ['chips', 1, 1]] },
+  crate: { rolls: [1, 3], table: [['jerrican', 3, 1], ['buche', 4, 3], ['ficelle', 3, 2], ['hache', 2, 1], ['pied_de_biche', 2, 1], ['canne', 2, 1], ['piles', 2, 2], ['bouteille', 2, 1]] },
+  trash: { rolls: [0, 2], table: [['jerrican', 1, 1], ['journal', 4, 2], ['bouteille', 3, 1], ['conserve_vide', 4, 1], ['chiffon', 2, 1], ['chips', 1, 1]] },
   mailbox: { rolls: [0, 2], table: [['note', 4, 1], ['journal', 4, 1], ['photo', 2, 1]] },
-  car: { rolls: [0, 4], table: [['eau', 4, 1], ['lampe', 2, 1], ['pied_de_biche', 2, 1], ['briquet', 2, 1], ['chips', 3, 1], ['soda', 3, 1], ['drap', 2, 1], ['note', 2, 1], ['radio', 1, 1], ['bandage', 2, 1]] },
+  car: { rolls: [0, 4], table: [['jerrican', 2, 1], ['eau', 4, 1], ['lampe', 2, 1], ['pied_de_biche', 2, 1], ['briquet', 2, 1], ['chips', 3, 1], ['soda', 3, 1], ['drap', 2, 1], ['note', 2, 1], ['radio', 1, 1], ['bandage', 2, 1]] },
 };
 
 export function rollLoot(kind, rnd, size) {

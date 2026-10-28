@@ -5,7 +5,8 @@ import { G, hour, holding, held } from './state.js';
 import { W, MAP, SIZE } from './world.js';
 import { T, isWater, isFloor } from './sprites/tiles.js';
 import { hash } from './raster.js';
-import { facingVec, litFires } from './game.js';
+import { facingVec, litFires, driving, carBox } from './game.js';
+import { CAR_DIRS } from './sprites/cars.js';
 
 const WALLKIND = { [W.WALL]: 'wall', [W.WINDOW]: 'window', [W.BROKEN]: 'broken', [W.DOOR]: 'door', [W.OPEN]: 'open', [W.DOORWAY]: 'doorway' };
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => v / 16 - 0.5);
@@ -52,7 +53,9 @@ export function renderWorld(dt, focus, showPlayer) {
       if (o && o.type === 'tree' && o.x === x && o.y === y) draw(B.S.shadows.tree, X + 2, Y + 9);
     }
   }
-  if (showPlayer && !p.sleeping) draw(B.S.shadows.player, Math.round(isoX(p.x, p.y)), Math.round(isoY(p.x, p.y)));
+  const drv = showPlayer ? driving() : null;
+  if (drv) B.warmCar(drv.v);
+  if (showPlayer && !p.sleeping && !drv) draw(B.S.shadows.player, Math.round(isoX(p.x, p.y)), Math.round(isoY(p.x, p.y)));
 
   // --- objets
   const list = [];
@@ -90,10 +93,17 @@ export function renderWorld(dt, focus, showPlayer) {
         if (o.x !== x || o.y !== y) continue;
         const r = w.room[i];
         if (r >= 0 && r !== pb) continue; // intérieur caché sous le toit
-        if (SIZE[o.type]) list.push(...strips(o, () => bigSprite(o), o.cells, d));
+        if (SIZE[o.type]) list.push(...strips(B.prop(o.type, o.k, o.v % 4), isoX(o.x + 0.5, o.y + 0.5), isoY(o.x + 0.5, o.y + 0.5), o.cells, d));
         else list.push({ d: d + 1, kind: 'obj', o, x, y });
       }
     }
+  }
+  // voitures libres : sprite de l'orientation la plus proche, découpé en colonnes
+  for (const c of w.cars) {
+    const X = isoX(c.x, c.y), Y = isoY(c.x, c.y);
+    if (X < -70 || X > VW + 70 || Y < -40 || Y > VH + 90) continue;
+    const i = ((Math.round(c.ang / (Math.PI * 2 / CAR_DIRS)) % CAR_DIRS) + CAR_DIRS) % CAR_DIRS;
+    list.push(...strips(B.car(c.v, i), Math.round(X), Math.round(Y), carCells(c), Math.floor(c.x + c.y)));
   }
   // toits (sauf celui de la maison où l'on se trouve), découpés en colonnes
   for (const b of w.blds) {
@@ -102,7 +112,7 @@ export function renderWorld(dt, focus, showPlayer) {
     if (X > VW + 200 || X < -400 || Y < -120 || Y > VH + 260) continue;
     list.push(...roofStrips(b));
   }
-  if (showPlayer && !p.sleeping) list.push({ d: P, kind: 'player' });
+  if (showPlayer && !p.sleeping && !drv) list.push({ d: P, kind: 'player' });
   list.sort((a, b) => a.d - b.d);
 
   for (const it of list) {
@@ -117,7 +127,7 @@ export function renderWorld(dt, focus, showPlayer) {
     }
   }
   // fantôme du joueur : visible même derrière un décor
-  if (showPlayer && !p.sleeping) { ctx.globalAlpha = 0.28; drawPlayer(0); ctx.globalAlpha = 1; }
+  if (showPlayer && !p.sleeping && !drv) { ctx.globalAlpha = 0.28; drawPlayer(0); ctx.globalAlpha = 1; }
   if (showPlayer && p.act && p.act.kind === 'fish') drawBobber(p.act.at);
 
   updateParticles(dt);
@@ -126,12 +136,17 @@ export function renderWorld(dt, focus, showPlayer) {
   drawFlames(true);
 }
 
-function bigSprite(o) {
-  return o.type === 'car' ? B.car(o.v, o.k) : B.prop(o.type, o.k, o.v % 4);
+// cases sous une voiture (échantillonnage du rectangle orienté)
+function carCells(c) {
+  const B = carBox(c), seen = new Set(), out = [];
+  for (let a = -B.hl; a <= B.hl + 1e-3; a += 0.45) for (let b = -B.hw; b <= B.hw + 1e-3; b += 0.45) {
+    const x = Math.floor(c.x + a * B.ux - b * B.uy), y = Math.floor(c.y + a * B.uy + b * B.ux), k = x * 4096 + y;
+    if (!seen.has(k)) { seen.add(k); out.push([x, y]); }
+  }
+  return out;
 }
 // bandes de 16 px : chacune prend la profondeur de la case la plus avancée de sa colonne
-function strips(o, sprf, cells, d) {
-  const spr = sprf(), X = isoX(o.x + 0.5, o.y + 0.5), Y = isoY(o.x + 0.5, o.y + 0.5);
+function strips(spr, X, Y, cells, d) {
   const depthOf = (c) => {
     let best = -1e9;
     for (const [i, j] of cells) if (i - j === c || i - j === c + 1) best = Math.max(best, i + j + 1);
@@ -298,12 +313,19 @@ function lighting(showPlayer) {
   const sources = [];
   if (showPlayer && dark > 0.25) {
     const p = G.p, h = held();
-    if (h && h.id === 'lampe' && h.d > 0) {
+    if (h && h.id === 'lampe' && h.d > 0 && !driving()) {
       const [fx, fy] = facingVec(p.dir);
       const sx = (fx - fy) * 16, sy = (fx + fy) * 8, l = Math.hypot(sx, sy);
       sources.push({ x: isoX(p.x, p.y), y: isoY(p.x, p.y) - 8, dx: sx / l, dy: sy / l, r: 96, cone: 0.82, col: [255, 244, 214], k: 1 });
     }
-    sources.push({ x: isoX(p.x, p.y), y: isoY(p.x, p.y) - 10, r: 26, col: [150, 160, 200], k: 0.45 });
+    const c = driving();
+    if (c && c.fuel > 0) {
+      // phares : un long cône depuis le nez de la voiture
+      const B = carBox(c), fx = c.x + B.ux * B.hl, fy = c.y + B.uy * B.hl;
+      const sx = (B.ux - B.uy) * 16, sy = (B.ux + B.uy) * 8, l = Math.hypot(sx, sy);
+      sources.push({ x: isoX(fx, fy), y: isoY(fx, fy) - 4, dx: sx / l, dy: sy / l, r: 150, cone: 0.86, col: [255, 240, 200], k: 1 });
+    }
+    if (!c) sources.push({ x: isoX(p.x, p.y), y: isoY(p.x, p.y) - 10, r: 26, col: [150, 160, 200], k: 0.45 });
   }
   for (const o of litFires()) {
     const fl = 0.9 + Math.sin(G.clock * 9 + o.x) * 0.05 + Math.sin(G.clock * 23) * 0.04;

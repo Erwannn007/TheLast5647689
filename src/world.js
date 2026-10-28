@@ -23,7 +23,7 @@ export const LABEL = {
 export const SOLID = {
   fridge: 0.42, counter: 0.46, sink: 0.46, stove: 0.44, wardrobe: 0.46, dresser: 0.42, bed: 0.46, sofa: 0.46,
   armchair: 0.4, table: 0.44, chair: 0.25, bookshelf: 0.46, tv: 0.42, toilet: 0.3, bathsink: 0.38, shelf: 0.46,
-  crate: 0.38, trash: 0.32, mailbox: 0.12, car: 0.5, bench: 0.42, lamp: 0.1, pump: 0.2, campfire: 0.3,
+  crate: 0.38, trash: 0.32, mailbox: 0.12, bench: 0.42, lamp: 0.1, pump: 0.2, campfire: 0.3,
   tree: 0.16, rock: 0.32, stump: 0.18, swing: 0.1, sign: 0.08, hydrant: 0.12,
 };
 
@@ -57,6 +57,7 @@ export class World {
     this.litter = new Uint8Array(n);
     this.water = new Uint8Array(n); // eau restante (évier, toilettes)
     this.objs = [];
+    this.cars = []; // voitures libres : { type: 'car', v, x, y, ang, speed, fuel, inv }
     this.blds = [];
     this.free = [];
   }
@@ -118,6 +119,7 @@ export class World {
       tile: b64(this.tile), wall: b64(this.wall), lock: b64(this.lock), wbld: b64(this.wbld), room: b64(this.room),
       litter: b64(this.litter), water: b64(this.water), blds: this.blds,
       objs: this.objs.filter(Boolean).map(({ cells, ...o }) => o),
+      cars: this.cars,
     };
   }
   static fromJSON(j) {
@@ -127,12 +129,13 @@ export class World {
     w.wbld = un(j.wbld, Int16Array); w.room = un(j.room, Int16Array); w.litter = un(j.litter, Uint8Array); w.water = un(j.water, Uint8Array);
     w.blds = j.blds;
     for (const o of j.objs) { delete o.id; w.addObj(o); }
+    w.cars = j.cars || [];
     return w;
   }
 }
 
 // taille des grands objets (longueur le long de +u, largeur le long de +v, avant rotation)
-export const SIZE = { bed: [2, 1], sofa: [2, 1], swing: [2, 1], car: [4, 2] };
+export const SIZE = { bed: [2, 1], sofa: [2, 1], swing: [2, 1] };
 // cases occupées, tournées comme le sprite (rotPrims) : k=1 envoie +u vers +v
 export function footprint(o) {
   const sz = SIZE[o.type];
@@ -263,15 +266,27 @@ export function generate(seed) {
     { xs: [20, 72], y: 69, k: 2 }, { xs: [20, 72], y: 67, k: 0 },
     { ys: [18, 82], x: 49, k: 1 }, { ys: [18, 82], x: 45, k: 3 },
   ];
-  const allRoad = (o) => footprint(o).every(([cx, cy]) => w.inb(cx, cy) && isRoad(w.T(cx, cy)));
+  // la place prise par une voiture garée (4 cases sur 2, comme une empreinte tournée)
+  const taken = new Set();
+  const carCells = (x, y, k) => {
+    const out = [];
+    for (let a = 0; a < 4; a++) for (let b = 0; b < 2; b++) {
+      const [du, dv] = [[a, b], [-b, a], [-a, -b], [b, -a]][k & 3];
+      out.push([x + du, y + dv]);
+    }
+    return out;
+  };
   for (let i = 0, n = 0; i < 200 && n < 15; i++) {
     const L = pick(lanes);
-    const o = L.xs ? { type: 'car', x: ri(L.xs[0], L.xs[1]), y: L.y, k: L.k } : { type: 'car', x: L.x, y: ri(L.ys[0], L.ys[1]), k: L.k };
-    // pas au milieu du carrefour
-    if (footprint(o).some(([cx, cy]) => cx >= 44 && cx <= 50 && cy >= 45 && cy <= 51)) continue;
-    if (!allRoad(o) || !w.canPlace('car', o.x, o.y, o.k)) continue;
-    o.v = ri(0, 49);
-    addContainer(w, rnd, o);
+    const x = L.xs ? ri(L.xs[0], L.xs[1]) : L.x, y = L.xs ? L.y : ri(L.ys[0], L.ys[1]);
+    const cells = carCells(x, y, L.k);
+    // pas au milieu du carrefour, pas les unes sur les autres, seulement sur la route
+    if (cells.some(([cx, cy]) => cx >= 44 && cx <= 50 && cy >= 45 && cy <= 51)) continue;
+    if (cells.some(([cx, cy]) => !w.inb(cx, cy) || !isRoad(w.T(cx, cy)) || taken.has(cx + cy * MAP) || w.occ[w.idx(cx, cy)] >= 0)) continue;
+    for (const [cx, cy] of cells) taken.add(cx + cy * MAP);
+    const cx = cells.reduce((a, c) => a + c[0], 0) / cells.length + 0.5, cy = cells.reduce((a, c) => a + c[1], 0) / cells.length + 0.5;
+    const fuel = rnd() < 0.4 ? 0 : Math.round(5 + rnd() * 55);
+    w.cars.push({ type: 'car', v: ri(0, 49), x: cx, y: cy, ang: [0, Math.PI / 2, Math.PI, -Math.PI / 2][L.k], speed: 0, fuel, inv: rollLoot('car', rnd, CONTAINERS.car) });
     n++;
   }
   for (let i = 0; i < 6; i++) {
