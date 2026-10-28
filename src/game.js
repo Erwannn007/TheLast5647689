@@ -153,7 +153,7 @@ function exitCar() {
   for (const [a, b] of [[0.3, -(B.hw + 0.32)], [0.3, B.hw + 0.32], [-(B.hl + 0.35), 0], [B.hl + 0.35, 0]]) {
     const x = c.x + a * B.ux - b * B.uy, y = c.y + a * B.uy + b * B.ux;
     if (!hit(x, y, R) && !carHit(x, y, R)) {
-      p.x = x; p.y = y; p.driving = -1; c.speed = 0;
+      p.x = x; p.y = y; p.driving = -1; c.speed = 0; c.steer = 0; G.lead = [0, 0];
       p.legsA = Math.atan2(B.ux - B.uy, B.ux + B.uy);
       setEngine(0, false);
       sfx('door');
@@ -163,41 +163,62 @@ function exitCar() {
   say('Impossible d\'ouvrir la portière ici.');
 }
 
-// conduite : le joystick donne la direction voulue ; on accélère vers elle, on recule si elle est derrière
+// Conduite : GAZ et FREIN (frein à l'arrêt = marche arrière), le joystick gauche braque vers la
+// direction voulue. Modèle « bicyclette » : la voiture tourne autour de ses roues arrière, d'autant
+// moins vite que le braquage est limité à haute vitesse ; elle roule en roue libre sans pédale.
+const WHEELBASE = 2.3, STEER_MAX = 0.62, VMAX = 11, VREV = 3.6;
 let emptyWarned = 0;
 function drive(c, dt, input) {
   const p = G.p, w = G.world;
-  let target = 0, steer = 0;
-  if (input.mag > 0.15 && !(G.ui && G.ui.kind !== 'text')) {
-    const sx = input.x, sy = input.y;
-    const wx = sx / 32 + sy / 16, wy = sy / 16 - sx / 32;
-    const want = Math.atan2(wy, wx);
-    const d = angDiff(want, c.ang);
-    if (Math.abs(d) <= 1.95) { target = 9 * input.mag; steer = d; }
-    else { target = -3.2 * input.mag; steer = angDiff(want, c.ang + Math.PI); }
+  const free = !(G.ui && G.ui.kind !== 'text');
+  // braquage voulu : le nez vers le joystick (en marche arrière on contre-braque pour garder ce sens)
+  let want = 0;
+  if (free && input.mag > 0.2) {
+    const wx = input.x / 32 + input.y / 16, wy = input.y / 16 - input.x / 32;
+    const d = angDiff(Math.atan2(wy, wx), c.ang);
+    const lim = STEER_MAX / (1 + Math.abs(c.speed) * 0.1);
+    want = Math.max(-lim, Math.min(lim, d * 1.3)) * (c.speed < -0.1 ? -1 : 1);
   }
-  if (c.fuel <= 0) {
-    target = 0;
-    if (input.mag > 0.15 && G.clock - emptyWarned > 4) { emptyWarned = G.clock; say('Plus d\'essence.'); }
-  }
-  // hors de la route, ça secoue et ça freine
+  c.steer = c.steer || 0;
+  c.steer += Math.max(-3.5 * dt, Math.min(3.5 * dt, want - c.steer));
+  // pédales
   const t = w.T(Math.floor(c.x), Math.floor(c.y));
-  if (!isRoad(t) && t !== 6 && t !== 4) target *= 0.55;
-  const acc = Math.sign(target) !== Math.sign(c.speed) && Math.abs(c.speed) > 0.2 ? 11 : target ? 4.5 : 5;
-  c.speed += Math.max(-acc * dt, Math.min(acc * dt, target - c.speed));
-  // on ne tourne qu'en roulant
-  const turn = Math.max(-1, Math.min(1, steer * 1.6)) * 2.1 * Math.min(1, Math.abs(c.speed) / 2.2) * dt;
-  const na = c.ang + turn;
-  const nx = c.x + Math.cos(na) * c.speed * dt, ny = c.y + Math.sin(na) * c.speed * dt;
-  if (!carBlocked(c, nx, ny, na)) { c.x = nx; c.y = ny; c.ang = na; }
-  else if (!carBlocked(c, c.x, c.y, na)) c.ang = na, c.speed *= 0.3;
-  else {
-    if (Math.abs(c.speed) > 3) { sfx('crash'); say('Boum.'); }
-    c.speed = -c.speed * 0.15;
+  const rough = !isRoad(t) && t !== 6 && t !== 4;
+  const vmax = rough ? 5 : VMAX;
+  const gas = free && input.gas, brake = free && input.brake, fuel = c.fuel > 0;
+  let a = -Math.sign(c.speed) * (rough ? 3.5 : 1.4); // roue libre
+  if (gas) {
+    if (c.speed < -0.3) a = 14;
+    else if (fuel) a = 6.5 * Math.max(0.12, 1 - c.speed / vmax);
+  } else if (brake) {
+    if (c.speed > 0.3) a = -14;
+    else if (fuel) a = -4 * Math.max(0.15, 1 + c.speed / VREV);
   }
-  c.fuel = Math.max(0, c.fuel - Math.abs(c.speed) * dt * 0.3);
+  if ((gas || brake) && !fuel && G.clock - emptyWarned > 4) { emptyWarned = G.clock; say('Plus d\'essence.'); }
+  const before = c.speed;
+  c.speed += a * dt;
+  if (!gas && !brake && Math.sign(c.speed) !== Math.sign(before)) c.speed = 0; // la roue libre s'arrête net à zéro
+  if (c.speed > vmax) c.speed = Math.max(vmax, c.speed - 6 * dt);
+  // déplacement : tourner autour de l'essieu arrière
+  const om = (c.speed / WHEELBASE) * Math.tan(c.steer);
+  const na = c.ang + om * dt;
+  const dx = Math.cos(na) * c.speed * dt, dy = Math.sin(na) * c.speed * dt;
+  if (!carBlocked(c, c.x + dx, c.y + dy, na)) { c.x += dx; c.y += dy; c.ang = na; }
+  else if (!carBlocked(c, c.x + dx, c.y, c.ang)) { c.x += dx; c.speed *= 0.9; } // on glisse le long de l'obstacle
+  else if (!carBlocked(c, c.x, c.y + dy, c.ang)) { c.y += dy; c.speed *= 0.9; }
+  else {
+    if (Math.abs(c.speed) > 3.5) { sfx('crash'); say('Boum.'); G.shake = Math.min(6, Math.abs(c.speed) * 0.5); }
+    c.speed = -c.speed * 0.2;
+  }
+  c.roll = (c.roll || 0) + c.speed * dt;
+  c.fuel = Math.max(0, c.fuel - Math.abs(c.speed) * dt * 0.25);
   p.x = c.x; p.y = c.y;
-  setEngine(Math.min(1, Math.abs(c.speed) / 9), c.fuel > 0);
+  // la caméra regarde devant la voiture
+  const lead = Math.max(-1.5, Math.min(4, c.speed * 0.35));
+  G.lead = G.lead || [0, 0];
+  G.lead[0] += (Math.cos(c.ang) * lead - G.lead[0]) * Math.min(1, dt * 2.5);
+  G.lead[1] += (Math.sin(c.ang) * lead - G.lead[1]) * Math.min(1, dt * 2.5);
+  setEngine(Math.min(1, Math.abs(c.speed) / VMAX), fuel);
 }
 
 // rien de solide entre le joueur et le point (hors case visée)
@@ -574,6 +595,7 @@ export function update(dt, input) {
   // déplacement
   p.moving = false;
   p.back = false;
+  p.running = false;
   const blocked = G.ui && G.ui.kind !== 'text' ? true : false;
   // visée (joystick droit) : angle dans le plan caméra, 0 = vers la caméra
   const aiming = !car && !p.sleeping && !blocked && input.amag > 0.3;
@@ -594,10 +616,22 @@ export function update(dt, input) {
     p.legsA = moveA;
     // viser loin derrière soi : on se retourne et on marche à reculons, moins vite
     if (aiming && Math.abs(angDiff(aimA, moveA)) > TWIST_MAX + 0.18) { p.legsA = moveA + Math.PI; p.back = true; speed *= 0.55; }
+    // sprint : pas en visant, pas à reculons, pas à bout de forces
+    p.running = !!input.sprint && !aiming && !p.back && input.mag > 0.5;
+    if (p.running && p.energy < 12) {
+      p.running = false;
+      if (G.clock - (p.puffT || 0) > 6) { p.puffT = G.clock; say('Vous êtes à bout de souffle.'); }
+    }
+    if (p.running) {
+      speed *= 1.8;
+      p.energy = clamp(p.energy - 0.3 * dt);
+      p.thirst = clamp(p.thirst - 0.05 * dt);
+    }
     move(p, wx * speed, wy * speed, dt);
     p.moving = true;
-    p.anim += dt * speed * 2.3;
-    if (Math.floor(p.anim * 2) !== Math.floor((p.anim - dt * speed * 2.3) * 2)) sfx('step', w.T(Math.floor(p.x), Math.floor(p.y)));
+    const stride = p.running ? 1.6 : 2.3; // la foulée de course est plus longue : moins de pas par case
+    p.anim += dt * speed * stride;
+    if (Math.floor(p.anim * 2) !== Math.floor((p.anim - dt * speed * stride) * 2)) sfx('step', w.T(Math.floor(p.x), Math.floor(p.y)));
   } else {
     p.anim += dt;
     // à l'arrêt, les pieds pivotent quand le buste arrive en butée

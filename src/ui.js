@@ -8,7 +8,7 @@ import { useItem, drop, save, newGame, wipe, refreshFires, driving } from './gam
 import { sfx, setMuted, initAudio } from './audio.js';
 import { screenOf } from './render.js';
 
-export const input = { x: 0, y: 0, mag: 0, ax: 0, ay: 0, amag: 0 }; // gauche : marche, droite : visée
+export const input = { x: 0, y: 0, mag: 0, ax: 0, ay: 0, amag: 0, gas: false, brake: false, sprint: false }; // gauche : marche, droite : visée
 const BASE = [62, 52, 44]; // panneaux : brun chaud
 const SLOT = 20;
 let buttons = []; // zones cliquables du HUD, recalculées à chaque image
@@ -66,12 +66,20 @@ function layoutHUD() {
   for (let i = 0; i < HOTBAR; i++) buttons.push({ kind: 'hot', i, x: hx + i * 22, y: hy, w: 20, h: 20 });
   const acts = G.target ? G.target.acts : [];
   const ax = VW - safe.r - 24, ay = hy - 30;
-  if (acts[0]) buttons.push({ kind: 'act', a: acts[0], cx: ax, cy: ay, r: 17, col: [70, 170, 110] });
-  if (acts[1]) buttons.push({ kind: 'act', a: acts[1], cx: ax, cy: ay - 46, r: 12, col: [60, 165, 190] });
-  if (acts[2]) buttons.push({ kind: 'act', a: acts[2], cx: ax - 34, cy: ay - 40, r: 11, col: [60, 165, 190] });
-  const h = G.p.inv[G.p.sel];
-  const use = !driving() && h && ITEMS[h.id].use;
-  if (use) buttons.push({ kind: 'use', label: use.verb, cx: VW - safe.r - (acts[0] ? 66 : 24), cy: hy - 24, r: 13, col: [230, 170, 50] });
+  if (driving()) {
+    // pédales à droite (on les garde enfoncées), sortir au-dessus
+    buttons.push({ kind: 'gas', hold: true, label: 'GAZ', cx: ax, cy: ay - 4, r: 19, col: [70, 170, 110] });
+    buttons.push({ kind: 'brake', hold: true, label: 'FREIN', cx: ax - 46, cy: ay + 4, r: 16, col: [225, 70, 90] });
+    if (acts[0]) buttons.push({ kind: 'act', a: acts[0], cx: ax, cy: ay - 58, r: 11, col: [60, 165, 190] });
+  } else {
+    if (acts[0]) buttons.push({ kind: 'act', a: acts[0], cx: ax, cy: ay, r: 17, col: [70, 170, 110] });
+    if (acts[1]) buttons.push({ kind: 'act', a: acts[1], cx: ax, cy: ay - 46, r: 12, col: [60, 165, 190] });
+    if (acts[2]) buttons.push({ kind: 'act', a: acts[2], cx: ax - 34, cy: ay - 40, r: 11, col: [60, 165, 190] });
+    const h = G.p.inv[G.p.sel];
+    const use = h && ITEMS[h.id].use;
+    if (use) buttons.push({ kind: 'use', label: use.verb, cx: VW - safe.r - (acts[0] ? 66 : 24), cy: hy - 24, r: 13, col: [230, 170, 50] });
+    buttons.push({ kind: 'sprint', hold: true, label: 'COURIR', cx: VW - safe.r - (use ? 104 : acts[0] ? 66 : 62), cy: hy - (use || !acts[0] ? 24 : 24), r: 13, col: [120, 90, 220] });
+  }
   buttons.push({ kind: 'bag', label: 'SAC', cx: safe.l + 20, cy: hy - 24, r: 13, col: [200, 90, 120] });
   buttons.push({ kind: 'menu', x: VW - safe.r - 15, y: safe.t + 3, w: 12, h: 12 });
   for (const b of buttons) if (b.r) { b.x = b.cx - b.r - 3; b.y = b.cy - b.r - 3; b.w = b.h = b.r * 2 + 6; b.h += 8; }
@@ -143,6 +151,7 @@ export function drawHUD() {
     circle(b.cx - 1, b.cy - 1, b.r - 3, rgba(b.col.map((c) => Math.min(255, c + 30)), 0.55));
     if (b.kind === 'bag') { draw(B.icon('drap'), b.cx - 8, b.cy - 8); }
     else if (b.kind === 'use') { const s = p.inv[p.sel]; if (s) draw(B.icon(s.id), b.cx - 8, b.cy - 8); }
+    else if (b.hold) { if (input[b.kind]) circle(b.cx, b.cy, b.r - 2, 'rgba(255,255,255,0.25)'); drawText(label[0], b.cx - 3, b.cy - 5, '#fff', 'rgba(0,0,0,0.6)', 2); }
     else drawText(label[0], b.cx - 1 - (b.r > 14 ? 2 : 1), b.cy - (b.r > 14 ? 5 : 2), '#fff', 'rgba(0,0,0,0.6)', b.r > 14 ? 2 : 1);
     drawText(label, b.cx - (textWidth(label) >> 1), b.cy + b.r + 3, '#fff');
     if (b.a && b.a.sub) drawText(b.a.sub, b.cx - (textWidth(b.a.sub) >> 1), b.cy + b.r + 10, '#d8d0c0');
@@ -579,7 +588,7 @@ function down(e) {
   if (ui) return;
   layoutHUD();
   const b = buttons.find((q) => inside(q, x, y));
-  if (b) { P.btn = b; return; }
+  if (b) { P.btn = b; if (b.hold) input[b.kind] = true; return; }
   // moitié gauche de l'écran : marcher ; moitié droite : tourner le buste
   if (x < view.W / 2) { if (!stick) { stick = { id: e.pointerId, x0: x, y0: y }; input.x = input.y = input.mag = 0; } }
   else if (!aimStick) { aimStick = { id: e.pointerId, x0: x, y0: y }; input.ax = input.ay = input.amag = 0; }
@@ -605,6 +614,7 @@ function up(e) {
   const P = pts.get(e.pointerId);
   pts.delete(e.pointerId);
   if (!P) return;
+  if (P.btn && P.btn.hold) { input[P.btn.kind] = false; return; }
   if (stick && stick.id === e.pointerId) { stick = null; input.x = input.y = input.mag = 0; return; }
   if (aimStick && aimStick.id === e.pointerId) { aimStick = null; input.ax = input.ay = input.amag = 0; return; }
   if (P.drag === true) { endDrag(slotAt(P.x, P.y)); return; }
@@ -679,6 +689,7 @@ export function bindInput() {
     const y = (keys.ArrowDown || keys.s ? 1 : 0) - (keys.ArrowUp || keys.z || keys.w ? 1 : 0);
     const ax = (keys.l ? 1 : 0) - (keys.j ? 1 : 0), ay = (keys.k ? 1 : 0) - (keys.i ? 1 : 0);
     if (!aimStick) { const m = Math.hypot(ax, ay); input.ax = m ? ax / m : 0; input.ay = m ? ay / m : 0; input.amag = m ? 1 : 0; }
+    input.sprint = !!keys.Shift; input.gas = !!keys[' ']; input.brake = !!(keys.x || keys.Control);
     if (stick) return;
     const l = Math.hypot(x, y);
     input.x = l ? x / l : 0; input.y = l ? y / l : 0; input.mag = l ? 1 : 0;

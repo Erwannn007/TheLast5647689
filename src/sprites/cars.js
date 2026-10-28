@@ -92,7 +92,8 @@ function hull(B, cu, cv) {
 }
 
 // Roue : cylindre d'axe horizontal (le long de v), pneu et enjoliveur ; un pneu crevé s'écrase.
-function wheel(wu, vc, r, halfw, flat) {
+// roll : rotation de la roue (0..1 = un rayon de jante), pour animer le roulement
+function wheel(wu, vc, r, halfw, flat, roll = 0) {
   const rz = flat ? r * 0.72 : r, wz = flat ? rz : r;
   return {
     b: [wu - r, wu + r, vc - halfw, vc + halfw, 0, wz + rz], ramp: TIRE, smooth: true,
@@ -104,15 +105,18 @@ function wheel(wu, vc, r, halfw, flat) {
     mat(q) {
       if (Math.abs(q.n[1]) > 0.7) {
         const d = Math.hypot((q.u - wu) / r, (q.z - wz) / rz);
-        if (d < 0.5) return d < 0.15 ? METAL[1] : STEEL[Math.min(3, q.shade + 1)]; // jante
-        return d < 0.62 ? TIRE[0] : TIRE[Math.min(3, q.shade)];
+        const a = Math.atan2(q.z - wz, q.u - wu) + roll * Math.PI * 2 / 5;
+        if (d < 0.16) return METAL[1]; // moyeu
+        if (d < 0.52) return Math.cos(a * 5) > 0.35 ? STEEL[Math.min(3, q.shade + 1)] : METAL[0]; // jante à 5 branches
+        if (d < 0.62) return TIRE[0];
+        return Math.cos(a * 10) > 0.6 ? TIRE[Math.max(0, q.shade - 1)] : TIRE[Math.min(3, q.shade)]; // sculptures du pneu
       }
       return TIRE[q.shade];
     },
   };
 }
 
-export function carPrims(v, cu = 0, cv = 0) {
+export function carPrims(v, cu = 0, cv = 0, roll = 0) {
   const B = BODIES[v % BODIES.length];
   const paint = PAINTS[Math.floor(v / BODIES.length) % PAINTS.length];
   const seed = v * 131 + 7;
@@ -121,14 +125,20 @@ export function carPrims(v, cu = 0, cv = 0) {
   const broken = hash(v, 5, 3) < 0.25;
   const H = hull(B, cu, cv);
   const glassAt = (q) => {
-    const x = q.u - cu, [t, slope] = H.top(q.u), side = Math.abs(q.n[1]) > 0.6;
-    if (q.z <= B.belt + 0.6 || q.z > t - 0.7) return false;
-    if (side) {
-      if (x < B.win[0] || x > B.win[1]) return false;
+    const x = q.u - cu, [t, slope] = H.top(q.u), n = q.n;
+    if (q.z <= B.belt + 0.5) return false;
+    if (Math.abs(n[1]) > 0.6) {
+      // vitres latérales, coupées par les montants
+      if (q.z > t - 0.9 || x < B.win[0] || x > B.win[1]) return false;
       for (const p of B.pillars) if (Math.abs(x - p) < 0.8) return false;
       return true;
     }
-    return Math.abs(slope) > 0.45 && Math.abs(q.v - cv) < H.half(q.u, q.z) - 1.1;
+    const inner = Math.abs(q.v - cv) < H.half(q.u, q.z) - 1.2;
+    // pare-brise et lunette : les pans inclinés du profil (le point touché peut être un peu sous la surface)
+    if (n[2] > 0.3 && Math.abs(slope) > 0.45) return inner && q.z < t - 0.3 + 0.6;
+    // vitre arrière verticale (cabine du pick-up, portes du fourgon, hayon)
+    if (n[0] < -0.7 && t > B.belt + 4 && q.z < t - 1 && Math.abs(q.v - cv) < B.hw - 2.6) return true;
+    return false;
   };
   H.ramp = paint;
   H.mat = (q) => {
@@ -137,7 +147,7 @@ export function carPrims(v, cu = 0, cv = 0) {
     // vitres : reflet en biais, éclats si cassées
     if (glassAt(q)) {
       if (broken && x > 0 && ((q.x * 3 + q.y * 5) % 7 === 0 || h < 0.2)) return h < 0.1 ? GLASS[3] : INTERIOR[1]; // fêlures
-      const refl = ((x + q.z * 0.9 + 64) % 10);
+      const refl = ((n[2] > 0.3 ? x * 0.8 + (q.v - cv) * 1.3 : x + q.z * 0.9) + 64) % 10; // reflet en biais
       return refl < 1.3 ? GLASS[3] : refl < 2.2 ? GLASS[2] : GLASS[q.z > B.belt + 4 ? 1 : 0];
     }
     if (n[0] > 0.7) {
@@ -172,7 +182,7 @@ export function carPrims(v, cu = 0, cv = 0) {
   H.smooth = true;
   const prims = [H];
   B.axles.forEach((a, i) => {
-    for (const side of [-1, 1]) prims.push(wheel(cu + a, cv + side * (B.hw - 2.3), B.wr, 1.8, flat === i * 2 + (side > 0 ? 1 : 0)));
+    for (const side of [-1, 1]) prims.push(wheel(cu + a, cv + side * (B.hw - 2.3), B.wr, 1.8, flat === i * 2 + (side > 0 ? 1 : 0), roll));
   });
   // rétroviseurs
   for (const side of [-1, 1]) prims.push({ ...box(cu + B.win[1] - 0.4, cu + B.win[1] + 1.2, cv + side * (B.hw + 0.2) - 0.9, cv + side * (B.hw + 0.2) + 0.9, B.belt + 0.2, B.belt + 2, paint), smooth: true });
@@ -182,8 +192,9 @@ export function carPrims(v, cu = 0, cv = 0) {
 // Les voitures roulent librement : 16 orientations (22,5°), le nez vers l'angle monde a = i·π/8
 // (0 = vers +x). Le sprite est centré sur le milieu de la voiture.
 export const CAR_DIRS = 16;
-export function carSprite(v, i) {
-  return renderSolids(turnPrims(carPrims(v), (i % CAR_DIRS) * Math.PI * 2 / CAR_DIRS), 100, 100, 50, 62);
+export const WHEEL_FRAMES = 3;
+export function carSprite(v, i, f = 0) {
+  return renderSolids(turnPrims(carPrims(v, 0, 0, f / WHEEL_FRAMES), (i % CAR_DIRS) * Math.PI * 2 / CAR_DIRS), 100, 100, 50, 62);
 }
 // demi-longueur et demi-largeur en tuiles (pour les collisions)
 export function carSize(v) {

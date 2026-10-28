@@ -38,16 +38,18 @@ const groups = {
     for (let f = 0; f < 8; f++) s.push(b.walk[1][2][f]);
     for (let f = 0; f < 8; f++) s.push(b.walk[4][0][f]);
     for (let f = 0; f < 4; f++) s.push(b.act[1][2][f]);
-    sheet('player', s, { scale: 4, cols: 10 });
+    for (let f = 0; f < 8; f++) s.push(b.run[2][f]);
+    for (let f = 0; f < 8; f++) s.push(b.run[0][f]);
+    sheet('player', s, { scale: 5, cols: 8 });
   },
   async cars() {
     const c = await import('../src/sprites/cars.js');
     const t = Date.now();
     const s = [];
-    for (let i = 0; i < 16; i++) s.push(c.carSprite(3 + 5 * 7, i).img);
-    for (let v = 0; v < 5; v++) s.push(c.carSprite(v + 5 * v, 2).img);
-    console.log('ms par voiture', (Date.now() - t) / 21);
-    sheet('cars', s, { scale: 3, cols: 7 });
+    for (let v = 0; v < 5; v++) for (const i of [1, 6, 9, 14]) s.push(c.carSprite(v + 5 * (v + 1), i).img);
+    for (let f = 0; f < 3; f++) s.push(c.carSprite(0, 4, f).img);
+    console.log('ms par voiture', (Date.now() - t) / 23);
+    sheet('cars', s, { scale: 3, cols: 4 });
   },
   async tiles() {
     const t = await import('../src/sprites/tiles.js');

@@ -92,28 +92,28 @@ ok(r.twist === 0 && r.legs === 0, 'sans visée, le buste revient dans l\'axe');
   const x0 = c.x, y0 = c.y, f0 = c.fuel;
   const fwd = { x: Math.cos(c.ang) - Math.sin(c.ang), y: (Math.cos(c.ang) + Math.sin(c.ang)) / 2 };
   const l = Math.hypot(fwd.x, fwd.y);
-  for (let i = 0; i < 60; i++) game.update(1 / 60, { x: fwd.x / l, y: fwd.y / l, mag: 1 });
+  for (let i = 0; i < 60; i++) game.update(1 / 60, { x: fwd.x / l, y: fwd.y / l, mag: 1, gas: true });
   ok(Math.hypot(c.x - x0, c.y - y0) > 1 && c.fuel < f0, `la voiture avance (${Math.hypot(c.x - x0, c.y - y0).toFixed(1)} cases)`);
   ok(G.p.x === c.x && G.p.y === c.y, 'le joueur suit la voiture');
-  // marche arrière : joystick dans l'autre sens
-  for (let i = 0; i < 90; i++) game.update(1 / 60, { x: -fwd.x / l, y: -fwd.y / l, mag: 1 });
+  // frein puis marche arrière
+  for (let i = 0; i < 120; i++) game.update(1 / 60, { x: 0, y: 0, mag: 0, brake: true });
   ok(c.speed < 0, `marche arrière (${c.speed.toFixed(1)})`);
   // panne sèche
   c.fuel = 0;
-  for (let i = 0; i < 120; i++) game.update(1 / 60, { x: fwd.x / l, y: fwd.y / l, mag: 1 });
+  for (let i = 0; i < 240; i++) game.update(1 / 60, { x: fwd.x / l, y: fwd.y / l, mag: 1, gas: true });
   ok(Math.abs(c.speed) < 0.1, 'sans essence, elle ne roule plus');
   // on ne traverse pas les murs : on fonce droit vers une maison
   c.fuel = 100;
   let crossed = false;
   for (let i = 0; i < 600; i++) {
-    game.update(1 / 60, { x: 0, y: -1, mag: 1 });
+    game.update(1 / 60, { x: 0, y: -1, mag: 1, gas: true });
     const bx = [];
     for (let cy = Math.floor(c.y) - 2; cy <= Math.floor(c.y) + 2; cy++) for (let cx = Math.floor(c.x) - 2; cx <= Math.floor(c.x) + 2; cx++) game.cellBoxes(cx, cy, bx);
     const A = game.carBox(c);
     if (bx.some((b) => { const px = (b[0] + b[2]) / 2 - c.x, py = (b[1] + b[3]) / 2 - c.y; return Math.abs(px * A.ux + py * A.uy) < A.hl - 0.3 && Math.abs(-px * A.uy + py * A.ux) < A.hw - 0.3; })) crossed = true;
   }
   ok(!crossed, 'la voiture ne traverse rien');
-  for (let i = 0; i < 120; i++) game.update(1 / 60, { x: 0, y: 0, mag: 0 });
+  for (let i = 0; i < 240; i++) game.update(1 / 60, { x: 0, y: 0, mag: 0, brake: c.speed > 0.2, gas: c.speed < -0.2 });
   const out = G.target.acts[0];
   ok(out.label === 'SORTIR', 'bouton sortir');
   out.fn();
@@ -121,4 +121,30 @@ ok(r.twist === 0 && r.legs === 0, 'sans visée, le buste revient dans l\'axe');
   // sauvegarde avec les voitures
   G.mode = 'play'; game.save(); const n = G.world.cars.length; game.load();
   ok(G.world.cars.length === n, 'voitures sauvegardées');
+}
+
+// virage : en roulant, le joystick à 90° fait tourner la voiture
+{
+  game.newGame(); G.ui = null;
+  const free = (q) => [1, 2, 3, 4].every((d) => !game.carBlocked(q, q.x + Math.cos(q.ang) * d, q.y + Math.sin(q.ang) * d, q.ang));
+  const c = G.world.cars.find(free) || G.world.cars[0];
+  c.fuel = 100; G.p.x = c.x; G.p.y = c.y + 1.3;
+  game.findTarget().acts.find((a) => a.label === 'CONDUIRE').fn();
+  const a0 = c.ang;
+  for (let i = 0; i < 40; i++) game.update(1 / 60, { x: 0, y: 0, mag: 0, gas: true });
+  // joystick vers la gauche du nez (monde : rotation de -90°)
+  const wa = c.ang - Math.PI / 2, wx = Math.cos(wa), wy = Math.sin(wa);
+  for (let i = 0; i < 30; i++) game.update(1 / 60, { x: wx - wy, y: (wx + wy) / 2, mag: 1, gas: true });
+  ok(Math.abs(c.ang - a0) > 0.15 || Math.abs(c.speed) < 0.5, `la voiture braque (${(c.ang - a0).toFixed(2)} rad)`);
+}
+// sprint
+{
+  game.newGame(); G.ui = null;
+  const run = (sprint) => { const x0 = G.p.x, y0 = G.p.y; for (let i = 0; i < 20; i++) game.update(1 / 60, { x: 1, y: 0.5, mag: 1, sprint }); return Math.hypot(G.p.x - x0, G.p.y - y0); };
+  G.p.x = 30.5; G.p.y = 48.5; // sur la grand-route
+  const walk = run(false); G.p.x = 30.5; G.p.y = 48.5;
+  const e0 = G.p.energy, sprint = run(true);
+  ok(sprint > walk * 1.5 && G.p.energy < e0, `courir va plus vite (${walk.toFixed(2)} -> ${sprint.toFixed(2)}) et fatigue`);
+  G.p.energy = 5; G.p.x = 30.5; G.p.y = 48.5;
+  ok(run(true) < walk * 1.3, 'épuisé, on ne court plus');
 }

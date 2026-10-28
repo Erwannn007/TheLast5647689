@@ -48,7 +48,11 @@ function loop(t) {
     drawTitle(saved);
   } else if (G.mode === 'play') {
     if (!G.ui || G.ui.kind !== 'menu') update(dt, input);
-    renderWorld(dt, [G.p.x, G.p.y], true);
+    // caméra : en avant de la voiture, petite secousse aux chocs
+    const L = G.lead || [0, 0];
+    G.shake = Math.max(0, (G.shake || 0) - dt * 12);
+    const sh = G.shake ? (Math.random() - 0.5) * G.shake / 16 : 0;
+    renderWorld(dt, [G.p.x + L[0] + sh, G.p.y + L[1] - sh], true);
     if (G.mode === 'play' && !G.p.sleeping) drawHUD();
     drawOverlay();
   } else if (G.mode === 'dead') {

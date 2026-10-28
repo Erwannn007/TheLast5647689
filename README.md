@@ -15,10 +15,12 @@ la faim, la soif, la fatigue, le moral… et ce que les gens ont laissé derriè
   - glisser un objet sur une case : le déplacer (les mêmes objets s'empilent, sinon on échange) ;
   - toucher un objet : infobulle avec ses effets et les actions (utiliser, diviser, ranger, jeter) ;
   - toucher le résultat de fabrication : fabriquer.
-- **Voitures** : CONDUIRE à côté d'une voiture. Le joystick gauche indique où aller : la voiture
-  accélère et braque vers lui, recule s'il pointe derrière. Beaucoup sont à sec : un jerrican
-  tenu en main permet de faire le PLEIN. Phares la nuit, SORTIR à l'arrêt.
-- Sur ordinateur : flèches / ZQSD marcher, `IJKL` viser, `E` interagir, `F` utiliser, `Tab` inventaire, `1`–`9` barre rapide.
+- **COURIR** (bouton violet, à garder enfoncé) : sprint, plus rapide mais fatigant ; impossible
+  en visant ou à bout de forces.
+- **Voitures** : CONDUIRE à côté d'une voiture. GAZ et FREIN à droite (à garder enfoncés ; FREIN à
+  l'arrêt = marche arrière), le joystick gauche braque vers la direction voulue. Beaucoup sont à
+  sec : un jerrican tenu en main permet de faire le PLEIN. Phares la nuit, SORTIR à l'arrêt.
+- Sur ordinateur : flèches / ZQSD marcher, `Maj` courir, `IJKL` viser, `Espace` gaz, `X` frein, `E` interagir, `F` utiliser, `Tab` inventaire, `1`–`9` barre rapide.
 
 Quelques recettes (2×2, sans forme) : drap + couteau → 3 chiffons ; 2 chiffons → bandage ;
 2 bûches + 2 branches → feu de camp ; branche + ficelle → canne à pêche ; lampe ou radio + piles → rechargée.

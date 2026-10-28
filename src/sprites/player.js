@@ -13,16 +13,17 @@ const clamp3 = (s) => (s < 0 ? 0 : s > 3 ? 3 : s);
 // pose : { phase (marche 0..1), walk (0/1), breathe (-1..1), act (-1 ou 0..1), twist (rad), tool }
 function bodyParts(pose) {
   const P = [];
-  const w = pose.walk, ph = pose.phase * Math.PI * 2;
-  const bob = w ? (Math.abs(Math.cos(ph)) - 0.5) * 0.7 : pose.breathe * 0.3;
+  const w = pose.walk, ph = pose.phase * Math.PI * 2, run = pose.run ? 1 : 0;
+  const bob = w ? (Math.abs(Math.cos(ph)) - 0.5) * (run ? 1.4 : 0.7) : pose.breathe * 0.3;
   const sway = w ? Math.sin(ph) * 0.35 : 0; // le bassin bascule d'une jambe sur l'autre
   const hipZ = 15.8 + bob;
   // --- jambes (repère des jambes)
   for (const side of [-1, 1]) {
     const s = w ? Math.sin(ph) * side : 0;
-    const lift = w ? Math.max(0, Math.cos(ph) * side) * 1.7 : 0;
+    const lift = w ? Math.max(0, Math.cos(ph) * side) * (run ? 3.6 : 1.7) : 0;
     const hip = [side * 1.75 + sway * 0.4, 0, hipZ];
-    const foot = [side * 1.7, s * 3.6, 1.35 + lift];
+    // en courant : grande foulée, le pied d'appui passe sous le bassin
+    const foot = [side * 1.6, s * (run ? 5.2 : 3.6) + run * 0.6, 1.35 + lift];
     const knee = ik(hip, foot, 7.4, 7.3, [0, 1, 0.1]);
     const denim = (p) => {
       let sh = p.shade;
@@ -39,7 +40,9 @@ function bodyParts(pose) {
 
   // --- buste (tourne autour de la colonne : torsion de visée + contre-balancier de la marche)
   const twist = pose.twist + (w ? -Math.sin(ph) * 0.12 : 0);
-  const tw = (p) => add(rotZ([p[0], p[1], 0], twist), [sway * 0.25, 0, p[2]]);
+  // en courant le buste penche vers l'avant (d'autant plus qu'on monte)
+  const lean = run * 0.17;
+  const tw = (p) => add(rotZ([p[0], p[1] + lean * (p[2] - 16), 0], twist), [sway * 0.25, 0, p[2]]);
   const chestZ = 23.4 + bob + pose.breathe * 0.25;
   const parka = (p) => {
     let s = p.shade;
@@ -68,8 +71,10 @@ function bodyParts(pose) {
       const up = Math.sin(a * Math.PI * 0.5);
       hand = tw([side * 2.6, 3.2 + up * 1.2, chestZ - 7.5 + up * 12]);
     } else {
-      const swing = w ? -Math.sin(ph) * side * 2.6 : 0;
-      hand = tw([side * 4.3, swing + 0.3, chestZ - 9.3 + (w ? Math.abs(swing) * 0.25 : 0)]);
+      const swing = w ? -Math.sin(ph) * side * (run ? 3.4 : 2.6) : 0;
+      // bras pliés et serrés quand on court
+      hand = run ? tw([side * 3.4, swing + 1.2, chestZ - 5.6 + Math.max(0, swing) * 0.5])
+        : tw([side * 4.3, swing + 0.3, chestZ - 9.3 + (w ? Math.abs(swing) * 0.25 : 0)]);
     }
     const elbow = ik(sh, hand, 5.5, 5.1, rotZ([side * 0.25, -1, 0], twist));
     const sleeve = (p) => (p.t > 0.86 ? Math.max(0, p.shade - 1) : p.shade); // poignet resserré
@@ -101,10 +106,11 @@ const render = (pose, d) => renderModel(bodyParts(pose), { w: 64, h: 72, ox: 32,
 // torsion o (huitièmes de tour) : le buste regarde la direction d + o
 const twistOf = (o) => o * Math.PI / 4;
 
-// Renvoie { walk, idle, act } indexés [jambes 0..7][torsion 0..4][image]
+// Renvoie { walk, idle, act } indexés [jambes 0..7][torsion 0..4][image], et run [direction][image]
 export function bakePlayer(tool = true) {
-  const out = { walk: [], idle: [], act: [] };
+  const out = { walk: [], idle: [], act: [], run: [] };
   for (let d = 0; d < DIRS; d++) {
+    out.run.push(Array.from({ length: WALK_FRAMES }, (_, f) => render({ phase: f / WALK_FRAMES, walk: 1, run: 1, breathe: 0, act: -1, twist: 0 }, d)));
     out.walk.push(TWISTS.map((o) => Array.from({ length: WALK_FRAMES }, (_, f) => render({ phase: f / WALK_FRAMES, walk: 1, breathe: 0, act: -1, twist: twistOf(o) }, d))));
     out.idle.push(TWISTS.map((o) => Array.from({ length: IDLE_FRAMES }, (_, f) => render({ phase: 0, walk: 0, breathe: Math.sin(f / IDLE_FRAMES * Math.PI * 2), act: -1, twist: twistOf(o) }, d))));
     out.act.push(TWISTS.map((o) => Array.from({ length: ACT_FRAMES }, (_, f) => render({ phase: 0, walk: 0, breathe: 0, act: f / ACT_FRAMES, tool, twist: twistOf(o) }, d))));

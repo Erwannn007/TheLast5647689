@@ -103,7 +103,9 @@ export function renderWorld(dt, focus, showPlayer) {
     const X = isoX(c.x, c.y), Y = isoY(c.x, c.y);
     if (X < -70 || X > VW + 70 || Y < -40 || Y > VH + 90) continue;
     const i = ((Math.round(c.ang / (Math.PI * 2 / CAR_DIRS)) % CAR_DIRS) + CAR_DIRS) % CAR_DIRS;
-    list.push(...strips(B.car(c.v, i), Math.round(X), Math.round(Y), carCells(c), Math.floor(c.x + c.y)));
+    // roues : une image par tiers de rayon de jante parcouru (1/5 de tour ≈ 0,4 case)
+    const f = c.roll ? ((Math.floor(c.roll / 0.13) % 3) + 3) % 3 : 0;
+    list.push(...strips(B.car(c.v, i, f), Math.round(X), Math.round(Y), carCells(c), Math.floor(c.x + c.y)));
   }
   // toits (sauf celui de la maison où l'on se trouve), découpés en colonnes
   for (const b of w.blds) {
@@ -205,6 +207,7 @@ function drawPlayer(full) {
   const p = G.p, S = B.S.player, l = p.legs || 0, t = (p.twist || 0) + 2;
   let spr;
   if (p.act && p.act.anim === 'act') spr = S.act[l][t][Math.floor(p.act.t * 5) & 3];
+  else if (p.moving && p.running) spr = S.run[l][Math.floor(p.anim * 8) & 7];
   else if (p.moving) { const f = Math.floor(p.anim * 8) & 7; spr = S.walk[l][t][p.back ? (8 - f) & 7 : f]; }
   else spr = S.idle[l][t][Math.floor(G.clock * 1.4) & 3];
   const X = Math.round(isoX(p.x, p.y)), Y = Math.round(isoY(p.x, p.y)) + (p.sitting ? 3 : 0);

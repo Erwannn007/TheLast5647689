@@ -4,7 +4,7 @@ import { tileBuffer, bankBuffer, leafLitter, WATER_FRAMES, T } from './sprites/t
 import { treeFrames, bushFrames, rockSprite, grassFrames, reedFrames, shadowBuffer, SWAY_FRAMES } from './sprites/nature.js';
 import { wallSprite, fenceSprite, roofSprite } from './sprites/build.js';
 import { propSprite } from './sprites/props.js';
-import { carSprite, CAR_DIRS } from './sprites/cars.js';
+import { carSprite, CAR_DIRS, WHEEL_FRAMES } from './sprites/cars.js';
 import { bakePlayer } from './sprites/player.js';
 import { iconBuffer, ICONS } from './sprites/icons.js';
 import { makeBuffer } from './raster.js';
@@ -28,7 +28,7 @@ export function bakeBase() {
   const p = bakePlayer();
   // [jambes][torsion][image]
   const bake3 = (A) => A.map((d) => d.map((t) => t.map(toSprite)));
-  S.player = { walk: bake3(p.walk), idle: bake3(p.idle), act: bake3(p.act) };
+  S.player = { walk: bake3(p.walk), idle: bake3(p.idle), act: bake3(p.act), run: p.run.map((d) => d.map(toSprite)) };
   for (const id of Object.keys(ICONS)) S.icons[id] = toSprite(iconBuffer(id));
   S.shadows.small = toSprite(shadowBuffer(6, 3));
   S.shadows.tree = toSprite(shadowBuffer(11, 5));
@@ -44,10 +44,10 @@ export const reed = (v, f) => memo(`d${v}`, () => reedFrames(v).map(toSprite))[f
 export const prop = (name, k, v) => memo(`p${name}${k}${v}`, () => toSprite(propSprite(name, k, v).img));
 export const wall = (mask, kind, style, intU, intV, cut) =>
   memo(`w${mask}${kind}${style.ext}${style.int}${intU}${intV}${cut}`, () => toSprite(wallSprite(mask, kind, style, intU, intV, cut).img));
-export const car = (v, i) => memo(`c${v}_${i}`, () => toSprite(carSprite(v, i).img));
-// cuit d'avance une orientation manquante par appel (la voiture conduite tourne sans à-coup)
+export const car = (v, i, f = 0) => memo(`c${v}_${i}_${f}`, () => toSprite(carSprite(v, i, f).img));
+// cuit d'avance une image manquante par appel (orientation × rotation des roues) pour la voiture conduite
 export function warmCar(v) {
-  for (let i = 0; i < CAR_DIRS; i++) if (!cache.has(`c${v}_${i}`)) { car(v, i); return; }
+  for (let i = 0; i < CAR_DIRS; i++) for (let f = 0; f < WHEEL_FRAMES; f++) if (!cache.has(`c${v}_${i}_${f}`)) { car(v, i, f); return; }
 }
 export const fence = (mask) => memo(`f${mask}`, () => toSprite(fenceSprite(mask).img));
 export const roof = (b) => memo(`roof${b.id}`, () => toSprite(roofSprite(b.x1 - b.x0 + 1, b.y1 - b.y0 + 1, b.style, b.seed).img));
