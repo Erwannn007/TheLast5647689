@@ -15,8 +15,8 @@ export const ITEMS = {
   poisson_cuit: { name: 'Poisson grillé', desc: 'Chaud. Ça sent bon.', stack: 6, use: { verb: 'MANGER', hunger: 34, moral: 8 } },
   baies: { name: 'Mûres', desc: 'Cueillies sur les ronces.', stack: 24, use: { verb: 'MANGER', hunger: 4, thirst: 2, moral: 1 } },
   // --- boissons ---
-  eau: { name: 'Bouteille d\'eau', desc: 'Claire et propre.', stack: 1, use: { verb: 'BOIRE', thirst: 45, leaves: 'bouteille' } },
-  eau_sale: { name: 'Eau croupie', desc: 'À faire bouillir au feu.', stack: 1, use: { verb: 'BOIRE', thirst: 40, sick: 0.5, leaves: 'bouteille' }, cook: 'eau' },
+  eau: { name: 'Bouteille d\'eau', desc: 'Claire et propre.', stack: 4, use: { verb: 'BOIRE', thirst: 45, leaves: 'bouteille' } },
+  eau_sale: { name: 'Eau croupie', desc: 'À faire bouillir au feu.', stack: 4, use: { verb: 'BOIRE', thirst: 40, sick: 0.5, leaves: 'bouteille' }, cook: 'eau' },
   bouteille: { name: 'Bouteille vide', desc: 'Se remplit à une pompe ou à l\'étang.', stack: 4 },
   soda: { name: 'Soda', desc: 'Éventé, tiède. Parfait.', stack: 8, use: { verb: 'BOIRE', thirst: 25, moral: 6, hunger: 2 } },
   // --- soins ---
@@ -67,7 +67,6 @@ export function makeStack(id, n = 1, rnd = Math.random) {
   if (def.gun) s.d = Math.floor(rnd() * (def.gun.cap + 1)); // un chargeur plus ou moins plein
   if (id === 'note') s.d = (rnd() * NOTES.length) | 0;
   if (id === 'photo') s.d = (rnd() * PHOTOS.length) | 0;
-  if (id === 'journal') s.d = (rnd() * JOURNALS.length) | 0;
   return s;
 }
 

@@ -30,7 +30,8 @@ export function bakeBase() {
   // [jambes][torsion][image]
   const bake3 = (A) => A.map((d) => d.map((t) => t.map(toSprite)));
   S.player = { walk: bake3(p.walk), idle: bake3(p.idle), act: bake3(p.act), run: p.run.map((d) => d.map(toSprite)),
-    aim: p.aim.map((d) => d.map(toSprite)), aimWalk: bake3(p.aimWalk) };
+    aim: p.aim.map((d) => d.map(toSprite)), aimWalk: bake3(p.aimWalk),
+    climb: p.climb.map((d) => d.map(toSprite)), reload: p.reload.map((d) => d.map(toSprite)) };
   const A = bakeAnimals();
   S.animals = {};
   for (const k in A) { S.animals[k] = {}; for (const a in A[k]) S.animals[k][a] = A[k][a].map((d) => d.map(toSprite)); }

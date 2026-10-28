@@ -322,13 +322,15 @@ function drawPlayer(full) {
   const p = G.p, S = B.S.player, l = p.legs || 0, t = (p.twist || 0) + 2;
   let spr;
   if (p.act && p.act.anim === 'act') spr = S.act[l][t][Math.floor(p.act.t * 5) & 3];
+  else if (p.act && p.act.anim === 'climb') spr = S.climb[l][Math.min(S.climb[l].length - 1, Math.floor(p.act.t / p.act.dur * S.climb[l].length))];
+  else if (p.act && p.act.anim === 'reload') spr = S.reload[l][Math.floor(p.act.t / p.act.dur * 2 * S.reload[l].length) % S.reload[l].length];
   else if (p.moving && p.running) spr = S.run[l][Math.floor(p.anim * S.run[l].length) % S.run[l].length];
   else if (p.moving) { const f = Math.floor(p.anim * 8) & 7; spr = S.walk[l][t][p.back ? (8 - f) & 7 : f]; }
   else spr = S.idle[l][t][Math.floor(G.clock * 1.4) & 3];
   const X = Math.round(isoX(p.x, p.y)), Y = Math.round(isoY(p.x, p.y)) + (p.sitting ? 3 : 0) - (p.l || 0) * FLOOR_H;
   // arme en joue
   const h = held();
-  if (p.aiming && h && ITEMS_GUN[h.id] && !(p.act && p.act.anim === 'act')) {
+  if (p.aiming && h && ITEMS_GUN[h.id] && !p.act) {
     const t2 = (p.twist || 0) + 2;
     spr = p.moving ? S.aimWalk[l][t2][Math.floor(p.anim * 8) & 7] : S.aim[l][t2];
   }

@@ -438,7 +438,11 @@ function climb(t) {
   if (alongX) ny = p.y < cy ? cy + 0.62 : cy - 0.62;
   else nx = p.x < cx ? cx + 0.62 : cx - 0.62;
   if (hit(nx, ny, R)) { say('Quelque chose bloque de l\'autre côté.'); return; }
-  busy('climb', 1, () => { p.x = nx; p.y = ny; hurt(0.12, 'en passant'); sfx('step'); }, { anim: 'act' });
+  // on se tourne vers la fenêtre et on passe : le corps glisse d'un côté à l'autre pendant l'animation
+  p.legsA = angleFromWorld(nx - p.x, ny - p.y);
+  p.legs = p.dir = dirOfAngle(p.legsA); p.twist = 0;
+  sfx('cloth');
+  busy('climb', 1.1, () => { p.x = nx; p.y = ny; hurt(0.12, 'en passant'); sfx('step', { t: 7 }); }, { anim: 'climb', locked: true, from: [p.x, p.y], to: [nx, ny] });
 }
 function lightFire(o) {
   const f = o.fire;
@@ -564,7 +568,7 @@ function readText(s) {
   let text;
   if (s.id === 'note') text = s.d < 0 ? START_NOTE : NOTES[s.d % NOTES.length];
   else if (s.id === 'photo') text = PHOTOS[s.d % PHOTOS.length];
-  else text = JOURNALS[(s.d || 0) % JOURNALS.length];
+  else text = JOURNALS[s.d !== undefined ? s.d % JOURNALS.length : (Math.random() * JOURNALS.length) | 0];
   if (!s.read) { G.p.moral = clamp(G.p.moral + (s.id === 'photo' ? 3 : 2)); s.read = 1; }
   G.ui = { kind: 'text', title: ITEMS[s.id].name, text };
   sfx('page');
@@ -666,7 +670,7 @@ function reload(s) {
   if (need <= 0) { say('Le chargeur est plein.'); return; }
   if (!have) { say(`Plus de ${ITEMS[g.ammo].name.toLowerCase()}.`); return; }
   sfx('reload');
-  busy('reload', g.reload, () => { const k = Math.min(need, count(G.p.inv, g.ammo)); take(g.ammo, k); s.d = (s.d || 0) + k; sfx('reload'); say(`${s.d}/${g.cap}`); }, { anim: 'idle' });
+  busy('reload', g.reload, () => { const k = Math.min(need, count(G.p.inv, g.ammo)); take(g.ammo, k); s.d = (s.d || 0) + k; sfx('reload'); say(`${s.d}/${g.cap}`); }, { anim: 'reload', locked: true });
 }
 
 // ---------------------------------------------------------------- animaux
@@ -742,8 +746,8 @@ export function update(dt, input) {
   const aiming = !car && !p.sleeping && !blocked && input.amag > 0.3;
   const aimA = aiming ? Math.atan2(input.ax, input.ay * 2) : null;
   if (p.legsA === undefined) p.legsA = p.dir * Math.PI / 4;
-  if (!car && !p.sleeping && !blocked && input.mag > 0.15) {
-    if (p.act && !p.act.locked) { p.act = null; }
+  if (!car && !p.sleeping && !blocked && input.mag > 0.15 && !(p.act && p.act.locked)) {
+    if (p.act) { p.act = null; }
     p.sitting = false;
     // joystick en écran -> monde (iso 2:1)
     const sx = input.x, sy = input.y;
@@ -805,6 +809,12 @@ export function update(dt, input) {
     const a = p.act;
     a.t += dt;
     if (a.sound && Math.floor(a.t / 0.8) !== Math.floor((a.t - dt) / 0.8)) sfx(a.sound);
+    if (a.from) {
+      // enjamber : on traverse doucement (lent au début et à la fin)
+      const k = Math.min(1, a.t / a.dur), e = k * k * (3 - 2 * k);
+      p.x = a.from[0] + (a.to[0] - a.from[0]) * e; p.y = a.from[1] + (a.to[1] - a.from[1]) * e;
+    }
+    if (a.kind === 'reload' && Math.floor(a.t / 0.5) !== Math.floor((a.t - dt) / 0.5)) sfx('reload');
     if (a.t >= a.dur) { p.act = null; a.done(); }
   }
 

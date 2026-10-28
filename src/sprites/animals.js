@@ -9,44 +9,65 @@ const clamp3 = (s) => (s < 0 ? 0 : s > 3 ? 3 : s);
 const facingOf = (d) => { const a = d * Math.PI * 2 / DIRS + (d % 4 === 0 ? 0.44 : 0); return [Math.sin(a), Math.cos(a)]; };
 
 // pose : { phase 0..1, gait 0 (arrêt) | 1 (marche) | 2 (fuite), graze 0..1, buck (bois) }
+// Anatomie : poitrail profond, taille fine, croupe ronde ; long cou incliné, tête fine, grandes
+// oreilles ; pattes fines (épaule et cuisse musclées, canons très fins, jarret arrière qui plie
+// vers l'arrière) ; miroir blanc sous la queue, gorge claire, ventre crème, dos plus foncé.
 function deerParts(pose) {
   const P = [];
   const ph = pose.phase * Math.PI * 2, g = pose.gait;
-  const stride = g === 2 ? 5 : g === 1 ? 2.6 : 0, lift = g === 2 ? 3.2 : 1.6;
-  const bob = g === 2 ? Math.abs(Math.sin(ph)) * 1.4 : g ? Math.abs(Math.sin(ph)) * 0.4 : 0;
+  const stride = g === 2 ? 4.6 : g === 1 ? 2.4 : 0, lift = g === 2 ? 3.6 : 1.8;
+  const bob = g === 2 ? Math.abs(Math.sin(ph)) * 1.6 : g ? Math.abs(Math.sin(ph)) * 0.35 : 0;
+  const bodyZ = 15.5 + bob;
   const pelt = (p) => {
     let s = p.shade;
-    if (p.ny > 0.45) return CREAM[clamp3(s)]; // ventre clair
-    if (hash(p.x, p.y, 7) < 0.12) s--;
+    if (p.ny > 0.5) return CREAM[clamp3(s)]; // ventre clair
+    if (p.ny < -0.65) s--; // ligne du dos plus foncée
+    if (hash(p.x, p.y, 7) < 0.1) s--;
     return clamp3(s);
   };
-  const bodyZ = 15 + bob;
-  P.push({ a: [0, -6.5, bodyZ + 0.5], b: [0, 6, bodyZ + 1], r1: 4, r2: 4.3, ramp: DEER, group: 1, tex: pelt });
-  // pattes : diagonales en phase (avant gauche + arrière droite)
-  for (const [x, f, off] of [[-1.8, 5, 0], [1.8, 5, 0.5], [-1.8, -5.5, 0.5], [1.8, -5.5, 0]]) {
+  // tronc : poitrail (devant, plus haut), taille, croupe
+  P.push({ a: [0, 4.2, bodyZ + 0.6], r1: 4.1, ramp: DEER, group: 1, tex: pelt });
+  P.push({ a: [0, 4.2, bodyZ + 0.6], b: [0, -3.8, bodyZ + 0.3], r1: 3.6, r2: 3.4, ramp: DEER, group: 1, tex: pelt });
+  P.push({ a: [0, -4.6, bodyZ + 0.6], r1: 3.8, ramp: DEER, group: 1, tex: (p) => (p.nx * p.fc[0] + p.nz * p.fc[2] < -0.55 && p.ny < 0.3 ? CREAM[3] : pelt(p)) }); // croupe et miroir blanc
+  // pattes : diagonales en phase (avant gauche + arrière droite) ; avant : genou vers l'arrière,
+  // arrière : jarret vers l'arrière lui aussi (le grasset est caché dans la cuisse)
+  for (const [x, f, off, hind] of [[-1.6, 4.6, 0, 0], [1.6, 4.6, 0.5, 0], [-1.7, -4.8, 0.5, 1], [1.7, -4.8, 0, 1]]) {
     const p = ph + off * Math.PI * 2;
-    const hip = [x, f, bodyZ - 1];
-    const hoof = [x * 1.1, f + Math.sin(p) * stride, Math.max(0, Math.cos(p)) * lift];
-    const knee = ik(hip, hoof, 7.6, 7.6, [0, f > 0 ? -1 : 1, 0]);
-    P.push({ a: hip, b: knee, r1: 1.5, r2: 0.9, ramp: DEER, group: 2 + (x > 0 ? 1 : 0), tex: pelt });
-    P.push({ a: knee, b: hoof, r1: 0.75, r2: 0.6, ramp: DEER, group: 2 + (x > 0 ? 1 : 0) });
+    const top = [x, f, bodyZ - 1.5];
+    const hoof = [x * 0.95, f + Math.sin(p) * stride, Math.max(0, Math.cos(p)) * lift];
+    const joint = ik(top, hoof, hind ? 7.4 : 6.9, hind ? 7.4 : 7.05, [0, -1, hind ? 0.4 : -0.1]);
+    const grp = 2 + (x > 0 ? 1 : 0) + hind * 2;
+    P.push({ a: [x, f + (hind ? -0.4 : 0.4), bodyZ - 0.5], b: top, r1: hind ? 2.4 : 2, r2: 1.4, ramp: DEER, group: grp, tex: pelt }); // épaule, cuisse
+    P.push({ a: top, b: joint, r1: hind ? 1.3 : 1.1, r2: 0.7, ramp: DEER, group: grp, tex: pelt });
+    P.push({ a: joint, b: hoof, r1: 0.55, r2: 0.45, ramp: DEER, group: grp });
+    P.push({ a: [hoof[0], hoof[1] + 0.3, hoof[2] + 0.2], r1: 0.55, ramp: BLOOD.map((c) => c.map((v) => v * 0.35)), group: grp }); // sabot sombre
   }
-  // cou et tête : tête basse quand il broute
+  // cou : part haut du poitrail, gorge claire ; tête basse quand il broute
   const gz = pose.graze;
-  const neckTop = [0, 9.5 + gz * 2.5, bodyZ + 9 - gz * 15];
-  P.push({ a: [0, 5.5, bodyZ + 1.5], b: neckTop, r1: 2.4, r2: 1.7, ramp: DEER, group: 4, tex: pelt });
-  const head = [0, neckTop[1] + 1.2, neckTop[2] + 0.8 - gz * 1.5];
-  const snout = [0, head[1] + 3.2, head[2] - 1.4];
-  P.push({ a: head, b: snout, r1: 1.9, r2: 1.1, ramp: DEER, group: 5, tex: (p) => (p.t > 0.85 ? 0 : clamp3(p.shade)) });
-  for (const s of [-1, 1]) P.push({ a: [s * 1.2, head[1] - 0.6, head[2] + 1.2], b: [s * 2.6, head[1] - 1.2, head[2] + 2.8], r1: 0.85, r2: 0.6, ramp: DEER, group: 6 }); // oreilles
+  const neckBase = [0, 6.2, bodyZ + 2.2];
+  const neckTop = [0, 8.6 + gz * 3.2, bodyZ + 8.8 - gz * 15.5];
+  P.push({ a: neckBase, b: neckTop, r1: 2.1, r2: 1.35, ramp: DEER, group: 8, tex: (p) => (p.ny > 0.2 && p.nz > 0 ? CREAM[clamp3(p.shade)] : pelt(p)) });
+  const head = [0, neckTop[1] + 0.9, neckTop[2] + 0.4 - gz * 1.2];
+  const snout = [0, head[1] + 3, head[2] - 1.6 - gz * 0.6];
+  P.push({ a: head, b: snout, r1: 1.55, r2: 0.85, ramp: DEER, group: 9, tex: (p) => {
+    if (p.t > 0.88) return [26, 18, 14]; // truffe
+    const f = p.nx * p.fc[0] + p.ny * p.fc[1] + p.nz * p.fc[2];
+    if (p.t < 0.32 && p.ny < 0.05 && p.ny > -0.4 && Math.abs(p.nx * p.fc[2] - p.nz * p.fc[0]) > 0.55 && f < 0.6) return [20, 14, 12]; // œil
+    return clamp3(p.shade);
+  } });
+  // grandes oreilles en cornet, écartées
+  for (const s of [-1, 1]) P.push({ a: [s * 0.9, head[1] - 0.9, head[2] + 1], b: [s * 3, head[1] - 1.8, head[2] + 2.6], r1: 0.5, r2: 1.05, ramp: DEER, group: 10, tex: (p) => (p.t > 0.5 && p.nz > 0.3 ? CREAM[1] : p.shade) });
   if (pose.buck) {
     for (const s of [-1, 1]) {
-      const base = [s * 0.9, head[1] - 0.3, head[2] + 1.6], top = [s * 2.6, head[1] - 0.6, head[2] + 7];
-      P.push({ a: base, b: top, r1: 0.45, ramp: ANTLER, group: 7 });
-      P.push({ a: [s * 1.7, head[1] - 0.4, head[2] + 4], b: [s * 2.2, head[1] + 1.4, head[2] + 6.2], r1: 0.35, ramp: ANTLER, group: 7 });
+      const base = [s * 0.7, head[1] - 0.4, head[2] + 1.4];
+      const mid = [s * 2.2, head[1] - 0.9, head[2] + 4.6], tip = [s * 2.4, head[1] + 1.2, head[2] + 7.4];
+      P.push({ a: base, b: mid, r1: 0.42, r2: 0.36, ramp: ANTLER, group: 11 });
+      P.push({ a: mid, b: tip, r1: 0.34, r2: 0.25, ramp: ANTLER, group: 11 });
+      P.push({ a: [s * 1.6, head[1] - 0.8, head[2] + 3.4], b: [s * 1.8, head[1] + 1.2, head[2] + 4.4], r1: 0.28, ramp: ANTLER, group: 11 }); // andouiller
+      P.push({ a: mid, b: [s * 3.6, head[1] - 1.4, head[2] + 6.2], r1: 0.26, ramp: ANTLER, group: 11 });
     }
   }
-  P.push({ a: [0, -7, bodyZ + 2.2], r1: 1.2, ramp: CREAM, group: 8 }); // queue blanche
+  P.push({ a: [0, -8, bodyZ + 1.6], b: [0, -8.6, bodyZ + 0.2], r1: 0.85, r2: 0.6, ramp: DEER, group: 12, tex: (p) => (p.nz < 0 ? CREAM[3] : p.shade) }); // queue
   return P;
 }
 

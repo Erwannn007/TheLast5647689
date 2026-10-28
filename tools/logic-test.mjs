@@ -242,3 +242,38 @@ function besideCar(c) {
   ok(!w2.objs[tree.id], 'arbre abattu toujours absent');
   ok(size < 400000, `sauvegarde légère : ${(size / 1024) | 0} Ko`);
 }
+// empilement : deux journaux et deux bouteilles d'eau s'empilent
+{
+  const { addTo, sameKind } = await import('../src/state.js');
+  const a = makeStack('journal'), b = makeStack('journal');
+  ok(sameKind(a, b), 'deux journaux s\'empilent');
+  const slots = [makeStack('eau'), null];
+  addTo(slots, makeStack('eau'));
+  ok(slots[0].n === 2 && !slots[1], 'les bouteilles d\'eau s\'empilent');
+  ok(!sameKind({ id: 'lampe', n: 1, d: 40 }, { id: 'lampe', n: 1, d: 90 }), 'deux lampes de charges différentes restent séparées');
+}
+// enjamber : on traverse la fenêtre pendant l'animation
+{
+  game.newGame(); G.ui = null;
+  const w = G.world;
+  let done = false;
+  for (let i = 0; i < w.wall.length && !done; i++) {
+    if (w.wall[i] !== 2) continue;
+    const x = i % 256, y = Math.floor(i / 256);
+    if (w.mask(x, y) !== 3 || !w.walkable(x, y + 1) || !w.walkable(x, y - 1)) continue;
+    w.setWall(x, y, 0, 3);
+    G.p.x = x + 0.5; G.p.y = y + 1.4; G.p.l = 0;
+    const { dirFromWorld } = await import('../src/sprites/player.js');
+    G.p.dir = dirFromWorld(0, -1);
+    const t = game.findTarget();
+    if (!t || t.kind !== 'wall') continue;
+    t.acts[0].fn();
+    const y0 = G.p.y;
+    for (let k = 0; k < 30; k++) game.update(1 / 60, { x: 0, y: 0, mag: 0 });
+    const mid = G.p.y;
+    for (let k = 0; k < 60; k++) game.update(1 / 60, { x: 1, y: 0, mag: 1 }); // le joystick ne coupe pas le geste
+    ok(mid < y0 && G.p.y < y + 0.5, `enjamber : passage progressif (${y0.toFixed(2)} -> ${mid.toFixed(2)} -> ${G.p.y.toFixed(2)})`);
+    done = true;
+  }
+  ok(done, 'une fenêtre à enjamber trouvée');
+}

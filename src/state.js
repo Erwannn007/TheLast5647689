@@ -46,7 +46,13 @@ export function say(text, t = 3.5) {
 }
 
 export const maxStack = (s) => ITEMS[s.id].stack;
-export const sameKind = (a, b) => a && b && a.id === b.id && a.d === undefined && b.d === undefined;
+// deux piles s'empilent si c'est le même objet ; la donnée ne compte que pour ce qui a une charge
+// (lampe, briquet, radio...) ou un chargeur — un vieux journal qui garde son numéro s'empile quand même
+export const sameKind = (a, b) => {
+  if (!a || !b || a.id !== b.id) return false;
+  const def = ITEMS[a.id];
+  return def.charge || def.gun ? a.d === b.d : true;
+};
 
 // Range une pile dans slots[from..to) : complète les piles existantes puis les cases vides.
 // Renvoie ce qui reste (ou null).

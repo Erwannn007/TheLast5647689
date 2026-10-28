@@ -370,11 +370,37 @@ function drawInv() {
   }
   // pile glissée, au-dessus du doigt
   const c = p.cursor;
-  if (c && pointer) drawStack(c, Math.round(pointer.x - 8), Math.round(pointer.y - 24));
+  if (c && pointer) {
+    const [gx, gy] = ghostAt(pointer);
+    const t = dropSlot(pointer);
+    if (t) { ctx.fillStyle = 'rgba(255,246,216,0.85)'; ctx.fillRect(t.x - 1, t.y - 1, SLOT + 1, 1); ctx.fillRect(t.x - 1, t.y + SLOT - 1, SLOT + 1, 1); ctx.fillRect(t.x - 1, t.y, 1, SLOT - 1); ctx.fillRect(t.x + SLOT - 1, t.y, 1, SLOT - 1); }
+    // l'objet tenu, en double taille, centré au-dessus du doigt
+    const ic = B.icon(c.id);
+    ctx.globalAlpha = 0.92;
+    if (ic.page) ctx.drawImage(ic.page, ic.sx, ic.sy, ic.w, ic.h, gx - 16, gy - 16, ic.w * 2, ic.h * 2);
+    ctx.globalAlpha = 1;
+    if (c.n > 1) drawText(String(c.n), gx + 10 - textWidth(String(c.n)), gy + 9, '#fff', 'rgba(0,0,0,0.85)');
+  }
   ui.L = L;
 }
 
 function slotAt(x, y) { return slots.find((s) => x >= s.x && x < s.x + SLOT - 1 && y >= s.y && y < s.y + SLOT - 1); }
+// le centre de l'objet glissé : un peu au-dessus du doigt, pour qu'il reste visible
+const GHOST_UP = 16;
+const ghostAt = (P) => [Math.round(P.x), Math.round(P.y - GHOST_UP)];
+// la case où l'objet tomberait : celle sous l'objet, sinon la plus proche à moins de 12 px
+function dropSlot(P) {
+  const [gx, gy] = ghostAt(P);
+  const s = slotAt(gx, gy);
+  if (s) return s.area === 'result' ? null : s;
+  let best = null, bd = 12;
+  for (const q of slots) {
+    if (q.area === 'result') continue;
+    const d = Math.hypot(q.x + SLOT / 2 - gx, q.y + SLOT / 2 - gy);
+    if (d < bd) { bd = d; best = q; }
+  }
+  return best;
+}
 const key = (s) => `${s.area}${s.i}`;
 
 // --- glisser-déposer
@@ -713,7 +739,7 @@ function moveP(e) {
     return;
   }
   // dans l'inventaire : au-delà de 4 px, le toucher devient un glisser
-  if (P.slot && !P.drag && Math.hypot(x - P.x0, y - P.y0) > 4) P.drag = startDrag(P.slot, P) || 'none';
+  if (P.slot && !P.drag && Math.hypot(x - P.x0, y - P.y0) > 3) P.drag = startDrag(P.slot, P) || 'none';
   for (const [st, k] of [[stick, ''], [aimStick, 'a']]) {
     if (!st || st.id !== e.pointerId) continue;
     let dx = x - st.x0, dy = y - st.y0;
@@ -736,7 +762,7 @@ function up(e) {
     if (h && ITEMS[h.id].gun && input.amag > 0.8) fire();
     aimStick = null; input.ax = input.ay = input.amag = 0; return;
   }
-  if (P.drag === true) { endDrag(slotAt(P.x, P.y)); return; }
+  if (P.drag === true) { endDrag(dropSlot(P)); return; }
   if (P.drag === 'none') return; // glissé depuis une case vide : rien
   const { x, y } = P;
   if (G.mode === 'title') { onStart && onStart(); return; }
