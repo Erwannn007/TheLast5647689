@@ -9,6 +9,7 @@ la faim, la soif, la fatigue, le moral… et ce que les gens ont laissé derriè
 - Moitié gauche de l'écran : joystick de marche (il apparaît sous le pouce).
 - Moitié droite : joystick de visée, le buste se tourne (jusqu'à 90° des jambes, comme dans
   Project Zomboid). Viser derrière soi en marchant fait reculer, plus lentement.
+- Près d'une maison, côté arrière ou côté : le toit s'efface et les murs devant vous sont coupés.
 - Bouton vert : interagir avec ce qui est marqué d'une petite flèche (ouvrir, boire, dormir, couper…).
 - Bouton jaune : utiliser l'objet tenu (manger, boire, lire, poser un feu…).
 - **SAC** : l'inventaire (3×9 + barre rapide, grille de fabrication 2×2).
@@ -18,7 +19,8 @@ la faim, la soif, la fatigue, le moral… et ce que les gens ont laissé derriè
 - **COURIR** (bouton violet, à garder enfoncé) : sprint, plus rapide mais fatigant ; impossible
   en visant ou à bout de forces.
 - **Voitures** : CONDUIRE à côté d'une voiture. GAZ et FREIN à droite (à garder enfoncés ; FREIN à
-  l'arrêt = marche arrière), le joystick gauche braque vers la direction voulue. Beaucoup sont à
+  l'arrêt = marche arrière), un volant à gauche : on l'attrape et on le tourne, il revient seul
+  au centre. Les roues avant braquent avec lui. Beaucoup sont à
   sec : un jerrican tenu en main permet de faire le PLEIN. Phares la nuit, SORTIR à l'arrêt.
 - Sur ordinateur : flèches / ZQSD marcher, `Maj` courir, `IJKL` viser, `Espace` gaz, `X` frein, `E` interagir, `F` utiliser, `Tab` inventaire, `1`–`9` barre rapide.
 

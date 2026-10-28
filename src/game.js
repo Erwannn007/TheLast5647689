@@ -3,7 +3,7 @@ import { G, newPlayer, say, addTo, has, held, holding, hour } from './state.js';
 import { World, generate, W, SOLID, LABEL, CONTAINERS } from './world.js';
 import { ITEMS, makeStack, COOK_TIME, NOTES, PHOTOS, JOURNALS, BROADCASTS } from './items.js';
 import { isWater } from './sprites/tiles.js';
-import { DIRS, angleFromWorld, dirOfAngle } from './sprites/player.js';
+import { DIRS, angleFromWorld, dirOfAngle, WALK_CYCLE, RUN_CYCLE } from './sprites/player.js';
 import { sfx, setEngine } from './audio.js';
 import { carSize } from './sprites/cars.js';
 import { isRoad } from './sprites/tiles.js';
@@ -163,8 +163,8 @@ function exitCar() {
   say('Impossible d\'ouvrir la portière ici.');
 }
 
-// Conduite : GAZ et FREIN (frein à l'arrêt = marche arrière), le joystick gauche braque vers la
-// direction voulue. Modèle « bicyclette » : la voiture tourne autour de ses roues arrière, d'autant
+// Conduite : GAZ et FREIN (frein à l'arrêt = marche arrière), un volant à l'écran pour braquer
+// (tourné vers la droite = la voiture tourne à droite, vu du conducteur). Modèle « bicyclette » : la voiture tourne autour de ses roues arrière, d'autant
 // moins vite que le braquage est limité à haute vitesse ; elle roule en roue libre sans pédale.
 const WHEELBASE = 2.3, STEER_MAX = 0.62, VMAX = 11, VREV = 3.6;
 let emptyWarned = 0;
@@ -172,15 +172,12 @@ function drive(c, dt, input) {
   const p = G.p, w = G.world;
   const free = !(G.ui && G.ui.kind !== 'text');
   // braquage voulu : le nez vers le joystick (en marche arrière on contre-braque pour garder ce sens)
-  let want = 0;
-  if (free && input.mag > 0.2) {
-    const wx = input.x / 32 + input.y / 16, wy = input.y / 16 - input.x / 32;
-    const d = angDiff(Math.atan2(wy, wx), c.ang);
-    const lim = STEER_MAX / (1 + Math.abs(c.speed) * 0.1);
-    want = Math.max(-lim, Math.min(lim, d * 1.3)) * (c.speed < -0.1 ? -1 : 1);
-  }
+  // volant : -1 (tout à gauche) .. 1 (tout à droite) ; lâché, il revient seul au centre
+  if (!input.wheelHeld) input.wheel = (input.wheel || 0) * Math.max(0, 1 - dt * 5);
+  const lim = STEER_MAX / (1 + Math.abs(c.speed) * 0.06);
+  const want = free ? Math.max(-1, Math.min(1, input.wheel || 0)) * lim : 0;
   c.steer = c.steer || 0;
-  c.steer += Math.max(-3.5 * dt, Math.min(3.5 * dt, want - c.steer));
+  c.steer += Math.max(-5 * dt, Math.min(5 * dt, want - c.steer));
   // pédales
   const t = w.T(Math.floor(c.x), Math.floor(c.y));
   const rough = !isRoad(t) && t !== 6 && t !== 4;
@@ -210,7 +207,8 @@ function drive(c, dt, input) {
     if (Math.abs(c.speed) > 3.5) { sfx('crash'); say('Boum.'); G.shake = Math.min(6, Math.abs(c.speed) * 0.5); }
     c.speed = -c.speed * 0.2;
   }
-  c.roll = (c.roll || 0) + c.speed * dt;
+  // phase des roues : suit la vitesse, plafonnée à 9 images/s (au-delà l'œil croirait qu'elles s'arrêtent)
+  c.wphase = (c.wphase || 0) + Math.sign(c.speed) * Math.min(Math.abs(c.speed) / 0.13, 9) * dt;
   c.fuel = Math.max(0, c.fuel - Math.abs(c.speed) * dt * 0.25);
   p.x = c.x; p.y = c.y;
   // la caméra regarde devant la voiture
@@ -629,9 +627,10 @@ export function update(dt, input) {
     }
     move(p, wx * speed, wy * speed, dt);
     p.moving = true;
-    const stride = p.running ? 1.6 : 2.3; // la foulée de course est plus longue : moins de pas par case
-    p.anim += dt * speed * stride;
-    if (Math.floor(p.anim * 2) !== Math.floor((p.anim - dt * speed * stride) * 2)) sfx('step', w.T(Math.floor(p.x), Math.floor(p.y)));
+    // un cycle d'animation = deux pas = WALK_CYCLE (ou RUN_CYCLE) cases : les pieds ne glissent pas
+    const k = 1 / (p.running ? RUN_CYCLE : WALK_CYCLE);
+    p.anim += dt * speed * k;
+    if (Math.floor(p.anim * 2) !== Math.floor((p.anim - dt * speed * k) * 2)) sfx('step', w.T(Math.floor(p.x), Math.floor(p.y)));
   } else {
     p.anim += dt;
     // à l'arrêt, les pieds pivotent quand le buste arrive en butée

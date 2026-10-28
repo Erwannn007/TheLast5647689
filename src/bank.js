@@ -44,10 +44,14 @@ export const reed = (v, f) => memo(`d${v}`, () => reedFrames(v).map(toSprite))[f
 export const prop = (name, k, v) => memo(`p${name}${k}${v}`, () => toSprite(propSprite(name, k, v).img));
 export const wall = (mask, kind, style, intU, intV, cut) =>
   memo(`w${mask}${kind}${style.ext}${style.int}${intU}${intV}${cut}`, () => toSprite(wallSprite(mask, kind, style, intU, intV, cut).img));
-export const car = (v, i, f = 0) => memo(`c${v}_${i}_${f}`, () => toSprite(carSprite(v, i, f).img));
-// cuit d'avance une image manquante par appel (orientation × rotation des roues) pour la voiture conduite
-export function warmCar(v) {
-  for (let i = 0; i < CAR_DIRS; i++) for (let f = 0; f < WHEEL_FRAMES; f++) if (!cache.has(`c${v}_${i}_${f}`)) { car(v, i, f); return; }
+export const car = (v, i, f = 0, st = 1) => memo(`c${v}_${i}_${f}_${st}`, () => toSprite(carSprite(v, i, f, st).img));
+// cuit d'avance une image manquante par appel (orientation × rotation × braquage) pour la voiture
+// conduite, en commençant par les orientations proches de la sienne
+export function warmCar(v, i0) {
+  for (let k = 0; k < CAR_DIRS; k++) {
+    const i = (i0 + (k & 1 ? -(k + 1) >> 1 : k >> 1) + CAR_DIRS * 2) % CAR_DIRS;
+    for (let st = 0; st < 3; st++) for (let f = 0; f < WHEEL_FRAMES; f++) if (!cache.has(`c${v}_${i}_${f}_${st}`)) { car(v, i, f, st); return; }
+  }
 }
 export const fence = (mask) => memo(`f${mask}`, () => toSprite(fenceSprite(mask).img));
 export const roof = (b) => memo(`roof${b.id}`, () => toSprite(roofSprite(b.x1 - b.x0 + 1, b.y1 - b.y0 + 1, b.style, b.seed).img));

@@ -1,5 +1,5 @@
 // Hors ligne : on garde une copie de chaque fichier ; le réseau d'abord, pour recevoir les mises à jour.
-const CACHE = 'thelast-v4';
+const CACHE = 'thelast-v5';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'src/main.js', 'src/gfx.js', 'src/bank.js', 'src/state.js', 'src/game.js', 'src/render.js', 'src/ui.js', 'src/audio.js',

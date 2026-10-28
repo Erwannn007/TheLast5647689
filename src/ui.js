@@ -8,12 +8,13 @@ import { useItem, drop, save, newGame, wipe, refreshFires, driving } from './gam
 import { sfx, setMuted, initAudio } from './audio.js';
 import { screenOf } from './render.js';
 
-export const input = { x: 0, y: 0, mag: 0, ax: 0, ay: 0, amag: 0, gas: false, brake: false, sprint: false }; // gauche : marche, droite : visée
+export const input = { x: 0, y: 0, mag: 0, ax: 0, ay: 0, amag: 0, gas: false, brake: false, sprint: false, wheel: 0, wheelHeld: false }; // gauche : marche, droite : visée
 const BASE = [62, 52, 44]; // panneaux : brun chaud
 const SLOT = 20;
 let buttons = []; // zones cliquables du HUD, recalculées à chaque image
+let wheelPos = null; // volant affiché quand on conduit
 let slots = []; // cases de l'inventaire ouvert
-let stick = null, aimStick = null;
+let stick = null, aimStick = null, wheelGrab = null;
 let pointer = null; // doigt qui manipule l'inventaire
 let tip = null; // infobulle ouverte : { key }
 let menuConfirm = 0;
@@ -44,6 +45,44 @@ function circle(cx, cy, r, col) {
 const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 const STAT_COL = { health: [220, 80, 86], hunger: [222, 150, 70], thirst: [90, 160, 220], energy: [226, 196, 80], moral: [160, 130, 220] };
 
+// ---------------------------------------------------------------- volant
+// Pixel par pixel : jante épaisse éclairée en haut à gauche, trois branches, moyeu, repère rouge à midi.
+function drawWheel(cx, cy, R, ang) {
+  const c = Math.cos(ang), s = Math.sin(ang), rin = R - 6;
+  const cols = { ring: ['#1c1a1c', '#2c2a2e', '#3e3b40', '#56525a'], spoke: '#38363c', hub: '#4a464e', mark: '#c84a3a' };
+  const pix = new Map();
+  for (let y = -R; y <= R; y++) for (let x = -R; x <= R; x++) {
+    const d = Math.hypot(x + 0.5, y + 0.5);
+    if (d > R) continue;
+    // coordonnées dans le repère du volant tourné
+    const u = (x + 0.5) * c + (y + 0.5) * s, v = -(x + 0.5) * s + (y + 0.5) * c;
+    let col = null;
+    if (d >= rin) {
+      const lit = -(x * 0.6 + y * 0.8) / R; // lumière en haut à gauche
+      let k = lit > 0.45 ? 3 : lit > 0 ? 2 : lit > -0.5 ? 1 : 0;
+      if (Math.abs(Math.atan2(v, u) + Math.PI / 2) < 0.16) col = cols.mark; // repère à midi
+      else if ((Math.floor((Math.atan2(v, u) + 7) * 9) & 1) && d > rin + 1 && d < R - 1) k = Math.max(0, k - 1); // grip
+      col = col || cols.ring[k];
+    } else if (d < 7) col = d < 5.5 ? cols.hub : cols.ring[1];
+    else {
+      // branches : vers le bas et vers les côtés (à 3 h et 9 h, un peu basses)
+      for (const a of [Math.PI / 2, 0.2, Math.PI - 0.2]) {
+        const ax = Math.cos(a), ay = Math.sin(a);
+        const along = u * ax + v * ay, across = -u * ay + v * ax;
+        if (along > 0 && Math.abs(across) < (a === Math.PI / 2 ? 2.4 : 2)) { col = cols.spoke; break; }
+      }
+    }
+    if (col) { if (!pix.has(col)) pix.set(col, []); pix.get(col).push(x, y); }
+  }
+  ctx.globalAlpha = 0.88;
+  circle(cx + 1, cy + 2, R, 'rgba(0,0,0,0.35)');
+  for (const [col, list] of pix) {
+    ctx.fillStyle = col;
+    for (let i = 0; i < list.length; i += 2) ctx.fillRect(cx + list[i], cy + list[i + 1], 1, 1);
+  }
+  ctx.globalAlpha = 1;
+}
+
 // ---------------------------------------------------------------- dessin d'une pile
 function drawStack(s, x, y) {
   if (!s) return;
@@ -63,10 +102,12 @@ function layoutHUD() {
   const hy = VH - safe.b - 24;
   const hx = Math.floor((VW - HOTBAR * 22 + 2) / 2);
   buttons = [];
+  wheelPos = null;
   for (let i = 0; i < HOTBAR; i++) buttons.push({ kind: 'hot', i, x: hx + i * 22, y: hy, w: 20, h: 20 });
   const acts = G.target ? G.target.acts : [];
   const ax = VW - safe.r - 24, ay = hy - 30;
   if (driving()) {
+    wheelPos = { cx: safe.l + 46, cy: hy - 76, r: 32 };
     // pédales à droite (on les garde enfoncées), sortir au-dessus
     buttons.push({ kind: 'gas', hold: true, label: 'GAZ', cx: ax, cy: ay - 4, r: 19, col: [70, 170, 110] });
     buttons.push({ kind: 'brake', hold: true, label: 'FREIN', cx: ax - 46, cy: ay + 4, r: 16, col: [225, 70, 90] });
@@ -167,6 +208,7 @@ export function drawHUD() {
     ctx.fillStyle = '#fff6d8';
     ctx.fillRect(X - 2, Y - lift + bob, 5, 1); ctx.fillRect(X - 1, Y - lift + bob + 1, 3, 1); ctx.fillRect(X, Y - lift + bob + 2, 1, 1);
   }
+  if (wheelPos) drawWheel(wheelPos.cx, wheelPos.cy, wheelPos.r, (input.wheel || 0) * 2.6);
   // joysticks : marche (clair) et visée (ambré)
   if (stick) {
     circle(stick.x0, stick.y0, 22, 'rgba(255,255,255,0.08)');
@@ -589,6 +631,14 @@ function down(e) {
   layoutHUD();
   const b = buttons.find((q) => inside(q, x, y));
   if (b) { P.btn = b; if (b.hold) input[b.kind] = true; return; }
+  // au volant : on attrape le volant (moitié gauche), le reste de l'écran ne fait rien
+  if (wheelPos) {
+    if (x < view.W / 2 && !wheelGrab && Math.hypot(x - wheelPos.cx, y - wheelPos.cy) < wheelPos.r * 1.9) {
+      wheelGrab = { id: e.pointerId, a0: Math.atan2(y - wheelPos.cy, x - wheelPos.cx), w0: input.wheel || 0 };
+      input.wheelHeld = true;
+    }
+    return;
+  }
   // moitié gauche de l'écran : marcher ; moitié droite : tourner le buste
   if (x < view.W / 2) { if (!stick) { stick = { id: e.pointerId, x0: x, y0: y }; input.x = input.y = input.mag = 0; } }
   else if (!aimStick) { aimStick = { id: e.pointerId, x0: x, y0: y }; input.ax = input.ay = input.amag = 0; }
@@ -598,6 +648,15 @@ function moveP(e) {
   if (!P) return;
   const [x, y] = toGame(e);
   P.x = x; P.y = y;
+  // volant : il suit l'angle du doigt autour de son centre
+  if (wheelGrab && wheelGrab.id === e.pointerId && wheelPos) {
+    let d = Math.atan2(y - wheelPos.cy, x - wheelPos.cx) - wheelGrab.a0;
+    if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2;
+    input.wheel = Math.max(-1, Math.min(1, wheelGrab.w0 + d / 2.6));
+    // on recale l'origine pour pouvoir tourner de plus d'un demi-tour en plusieurs gestes
+    if (Math.abs(d) > 1.2) { wheelGrab.a0 += d; wheelGrab.w0 = input.wheel; }
+    return;
+  }
   // dans l'inventaire : au-delà de 4 px, le toucher devient un glisser
   if (P.slot && !P.drag && Math.hypot(x - P.x0, y - P.y0) > 4) P.drag = startDrag(P.slot, P) || 'none';
   for (const [st, k] of [[stick, ''], [aimStick, 'a']]) {
@@ -615,6 +674,7 @@ function up(e) {
   pts.delete(e.pointerId);
   if (!P) return;
   if (P.btn && P.btn.hold) { input[P.btn.kind] = false; return; }
+  if (wheelGrab && wheelGrab.id === e.pointerId) { wheelGrab = null; input.wheelHeld = false; return; }
   if (stick && stick.id === e.pointerId) { stick = null; input.x = input.y = input.mag = 0; return; }
   if (aimStick && aimStick.id === e.pointerId) { aimStick = null; input.ax = input.ay = input.amag = 0; return; }
   if (P.drag === true) { endDrag(slotAt(P.x, P.y)); return; }
@@ -690,6 +750,7 @@ export function bindInput() {
     const ax = (keys.l ? 1 : 0) - (keys.j ? 1 : 0), ay = (keys.k ? 1 : 0) - (keys.i ? 1 : 0);
     if (!aimStick) { const m = Math.hypot(ax, ay); input.ax = m ? ax / m : 0; input.ay = m ? ay / m : 0; input.amag = m ? 1 : 0; }
     input.sprint = !!keys.Shift; input.gas = !!keys[' ']; input.brake = !!(keys.x || keys.Control);
+    if (!wheelGrab) { input.wheel = x; input.wheelHeld = !!x; } // au clavier : gauche/droite braquent
     if (stick) return;
     const l = Math.hypot(x, y);
     input.x = l ? x / l : 0; input.y = l ? y / l : 0; input.mag = l ? 1 : 0;

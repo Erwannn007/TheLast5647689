@@ -26,6 +26,15 @@ export function renderWorld(dt, focus, showPlayer) {
   ctx.fillRect(0, 0, VW, VH);
 
   const pb = showPlayer ? w.inside(p.x, p.y) : -1;
+  // Bâtiments ouverts (comme Project Zomboid) : celui où l'on est ('in'), et celui qui nous cache quand
+  // on passe derrière ou sur le côté ('near') : son toit disparaît et les murs devant nous sont coupés.
+  const open = new Map();
+  if (pb >= 0) open.set(pb, 'in');
+  else if (showPlayer && !driving()) {
+    for (const b of w.blds) {
+      if (p.x > b.x0 - 3 && p.x < b.x1 + 0.6 && p.y > b.y0 - 3 && p.y < b.y1 + 0.6) open.set(b.id, 'near');
+    }
+  }
   const pcx = Math.floor(p ? p.x : 0), pcy = Math.floor(p ? p.y : 0);
   const dmin = Math.floor((-24 - oy) / 8) - 1, dmaxG = Math.ceil((VH - oy) / 8) + 1, dmaxO = Math.ceil((VH + 110 - oy) / 8);
   const xr = (d, m) => [Math.floor(((-m - ox) / 16 + d) / 2), Math.ceil(((VW + m - ox) / 16 + d) / 2)];
@@ -54,7 +63,7 @@ export function renderWorld(dt, focus, showPlayer) {
     }
   }
   const drv = showPlayer ? driving() : null;
-  if (drv) B.warmCar(drv.v);
+  if (drv) B.warmCar(drv.v, ((Math.round(drv.ang / (Math.PI * 2 / CAR_DIRS)) % CAR_DIRS) + CAR_DIRS) % CAR_DIRS);
   if (showPlayer && !p.sleeping && !drv) draw(B.S.shadows.player, Math.round(isoX(p.x, p.y)), Math.round(isoY(p.x, p.y)));
 
   // --- objets
@@ -74,7 +83,7 @@ export function renderWorld(dt, focus, showPlayer) {
       if (k) {
         const bi = w.wbld[i], b = bi >= 0 ? w.blds[bi] : null;
         const border = b && (x === b.x0 || x === b.x1 || y === b.y0 || y === b.y1);
-        if (b && !border && bi !== pb) { /* cloison sous le toit */ }
+        if (b && !border && !open.has(bi)) { /* cloison sous le toit */ }
         else {
           let dd = d + 1;
           if (showPlayer && Math.abs(x + 0.5 - p.x) < 1.6 && Math.abs(y + 0.5 - p.y) < 1.6) {
@@ -83,7 +92,9 @@ export function renderWorld(dt, focus, showPlayer) {
             const front = (m & 3) && !(m & 12) ? p.y > cy : (m & 12) && !(m & 3) ? p.x > cx : p.x + p.y > cx + cy;
             dd = front ? Math.min(dd, P - 0.01) : Math.max(dd, P + 0.01);
           }
-          const cut = b && bi === pb && (x === b.x1 || y === b.y1 || (!border && x + y > pcx + pcy));
+          const mode = b && open.get(bi);
+          const cut = mode === 'in' ? (x === b.x1 || y === b.y1 || (!border && x + y > pcx + pcy))
+            : mode === 'near' ? x + y > pcx + pcy - 2 : false;
           list.push({ d: dd, kind: 'wall', x, y, k, b, cut });
         }
       }
@@ -92,7 +103,7 @@ export function renderWorld(dt, focus, showPlayer) {
         const o = w.objs[oi];
         if (o.x !== x || o.y !== y) continue;
         const r = w.room[i];
-        if (r >= 0 && r !== pb) continue; // intérieur caché sous le toit
+        if (r >= 0 && !open.has(r)) continue; // intérieur caché sous le toit
         if (SIZE[o.type]) list.push(...strips(B.prop(o.type, o.k, o.v % 4), isoX(o.x + 0.5, o.y + 0.5), isoY(o.x + 0.5, o.y + 0.5), o.cells, d));
         else list.push({ d: d + 1, kind: 'obj', o, x, y });
       }
@@ -103,13 +114,14 @@ export function renderWorld(dt, focus, showPlayer) {
     const X = isoX(c.x, c.y), Y = isoY(c.x, c.y);
     if (X < -70 || X > VW + 70 || Y < -40 || Y > VH + 90) continue;
     const i = ((Math.round(c.ang / (Math.PI * 2 / CAR_DIRS)) % CAR_DIRS) + CAR_DIRS) % CAR_DIRS;
-    // roues : une image par tiers de rayon de jante parcouru (1/5 de tour ≈ 0,4 case)
-    const f = c.roll ? ((Math.floor(c.roll / 0.13) % 3) + 3) % 3 : 0;
-    list.push(...strips(B.car(c.v, i, f), Math.round(X), Math.round(Y), carCells(c), Math.floor(c.x + c.y)));
+    // roues : rotation (phase plafonnée pour rester visible) et braquage des roues avant
+    const f = c.wphase ? ((Math.floor(c.wphase) % 3) + 3) % 3 : 0;
+    const st = !c.steer ? 1 : c.steer > 0.12 ? 2 : c.steer < -0.12 ? 0 : 1;
+    list.push(...strips(B.car(c.v, i, f, st), Math.round(X), Math.round(Y), carCells(c), Math.floor(c.x + c.y)));
   }
   // toits (sauf celui de la maison où l'on se trouve), découpés en colonnes
   for (const b of w.blds) {
-    if (b.id === pb) continue;
+    if (open.has(b.id)) continue;
     const X = isoX(b.x0, b.y0), Y = isoY(b.x0, b.y0);
     if (X > VW + 200 || X < -400 || Y < -120 || Y > VH + 260) continue;
     list.push(...roofStrips(b));
@@ -207,7 +219,7 @@ function drawPlayer(full) {
   const p = G.p, S = B.S.player, l = p.legs || 0, t = (p.twist || 0) + 2;
   let spr;
   if (p.act && p.act.anim === 'act') spr = S.act[l][t][Math.floor(p.act.t * 5) & 3];
-  else if (p.moving && p.running) spr = S.run[l][Math.floor(p.anim * 8) & 7];
+  else if (p.moving && p.running) spr = S.run[l][Math.floor(p.anim * S.run[l].length) % S.run[l].length];
   else if (p.moving) { const f = Math.floor(p.anim * 8) & 7; spr = S.walk[l][t][p.back ? (8 - f) & 7 : f]; }
   else spr = S.idle[l][t][Math.floor(G.clock * 1.4) & 3];
   const X = Math.round(isoX(p.x, p.y)), Y = Math.round(isoY(p.x, p.y)) + (p.sitting ? 3 : 0);

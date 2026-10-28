@@ -48,6 +48,7 @@ const groups = {
     const s = [];
     for (let v = 0; v < 5; v++) for (const i of [1, 6, 9, 14]) s.push(c.carSprite(v + 5 * (v + 1), i).img);
     for (let f = 0; f < 3; f++) s.push(c.carSprite(0, 4, f).img);
+    for (const st of [0, 2]) for (const i of [2, 5]) s.push(c.carSprite(5, i, 0, st).img);
     console.log('ms par voiture', (Date.now() - t) / 23);
     sheet('cars', s, { scale: 3, cols: 4 });
   },

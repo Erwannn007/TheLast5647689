@@ -123,7 +123,7 @@ ok(r.twist === 0 && r.legs === 0, 'sans visée, le buste revient dans l\'axe');
   ok(G.world.cars.length === n, 'voitures sauvegardées');
 }
 
-// virage : en roulant, le joystick à 90° fait tourner la voiture
+// virage : en roulant, le volant tourné fait tourner la voiture
 {
   game.newGame(); G.ui = null;
   const free = (q) => [1, 2, 3, 4].every((d) => !game.carBlocked(q, q.x + Math.cos(q.ang) * d, q.y + Math.sin(q.ang) * d, q.ang));
@@ -132,9 +132,8 @@ ok(r.twist === 0 && r.legs === 0, 'sans visée, le buste revient dans l\'axe');
   game.findTarget().acts.find((a) => a.label === 'CONDUIRE').fn();
   const a0 = c.ang;
   for (let i = 0; i < 40; i++) game.update(1 / 60, { x: 0, y: 0, mag: 0, gas: true });
-  // joystick vers la gauche du nez (monde : rotation de -90°)
-  const wa = c.ang - Math.PI / 2, wx = Math.cos(wa), wy = Math.sin(wa);
-  for (let i = 0; i < 30; i++) game.update(1 / 60, { x: wx - wy, y: (wx + wy) / 2, mag: 1, gas: true });
+  // volant tourné à fond vers la gauche
+  for (let i = 0; i < 30; i++) game.update(1 / 60, { x: 0, y: 0, mag: 0, gas: true, wheel: -1, wheelHeld: true });
   ok(Math.abs(c.ang - a0) > 0.15 || Math.abs(c.speed) < 0.5, `la voiture braque (${(c.ang - a0).toFixed(2)} rad)`);
 }
 // sprint

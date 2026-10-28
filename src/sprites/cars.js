@@ -92,31 +92,39 @@ function hull(B, cu, cv) {
 }
 
 // Roue : cylindre d'axe horizontal (le long de v), pneu et enjoliveur ; un pneu crevé s'écrase.
-// roll : rotation de la roue (0..1 = un rayon de jante), pour animer le roulement
-function wheel(wu, vc, r, halfw, flat, roll = 0) {
+// roll : rotation de la roue (0..1 = un rayon de jante), pour animer le roulement ;
+// yaw : braquage (les roues avant pivotent autour de la verticale)
+function wheel(wu, vc, r, halfw, flat, roll = 0, yaw = 0) {
   const rz = flat ? r * 0.72 : r, wz = flat ? rz : r;
+  const c = Math.cos(yaw), sn = Math.sin(yaw);
+  const loc = (u, v) => { const du = u - wu, dv = v - vc; return [du * c + dv * sn, -du * sn + dv * c]; }; // repère de la roue
+  const ext = halfw + r * Math.abs(sn);
   return {
-    b: [wu - r, wu + r, vc - halfw, vc + halfw, 0, wz + rz], ramp: TIRE, smooth: true,
-    inside(u, v, z) { const a = (u - wu) / r, c = (z - wz) / rz; return a * a + c * c <= 1 && Math.abs(v - vc) <= halfw; },
+    b: [wu - r - halfw * Math.abs(sn), wu + r + halfw * Math.abs(sn), vc - ext, vc + ext, 0, wz + rz], ramp: TIRE, smooth: true,
+    inside(u, v, z) { const [lu, lv] = loc(u, v), a = lu / r, e = (z - wz) / rz; return a * a + e * e <= 1 && Math.abs(lv) <= halfw; },
     normal(u, v, z) {
-      if (Math.abs(v - vc) > halfw - 0.35) return [0, Math.sign(v - vc), 0];
-      return nrm((u - wu) / r, 0, (z - wz) / rz);
+      const [lu, lv] = loc(u, v);
+      const n = Math.abs(lv) > halfw - 0.35 ? [0, Math.sign(lv), 0] : nrm(lu / r, 0, (z - wz) / rz);
+      return [n[0] * c - n[1] * sn, n[0] * sn + n[1] * c, n[2]];
     },
     mat(q) {
-      if (Math.abs(q.n[1]) > 0.7) {
-        const d = Math.hypot((q.u - wu) / r, (q.z - wz) / rz);
-        const a = Math.atan2(q.z - wz, q.u - wu) + roll * Math.PI * 2 / 5;
+      const [lu] = loc(q.u, q.v), ln = -q.n[0] * sn + q.n[1] * c;
+      if (Math.abs(ln) > 0.7) {
+        const d = Math.hypot(lu / r, (q.z - wz) / rz);
+        const a = Math.atan2(q.z - wz, lu) + roll * Math.PI * 2 / 5;
         if (d < 0.16) return METAL[1]; // moyeu
         if (d < 0.52) return Math.cos(a * 5) > 0.35 ? STEEL[Math.min(3, q.shade + 1)] : METAL[0]; // jante à 5 branches
         if (d < 0.62) return TIRE[0];
-        return Math.cos(a * 10) > 0.6 ? TIRE[Math.max(0, q.shade - 1)] : TIRE[Math.min(3, q.shade)]; // sculptures du pneu
+        return TIRE[Math.min(3, q.shade)];
       }
-      return TIRE[q.shade];
+      // bande de roulement : les sculptures défilent avec la rotation
+      const a = Math.atan2(q.z - wz, lu) + roll * Math.PI * 2 / 5;
+      return Math.cos(a * 10) > 0.5 ? TIRE[Math.max(0, q.shade - 1)] : TIRE[Math.min(3, q.shade)];
     },
   };
 }
 
-export function carPrims(v, cu = 0, cv = 0, roll = 0) {
+export function carPrims(v, cu = 0, cv = 0, roll = 0, steer = 0) {
   const B = BODIES[v % BODIES.length];
   const paint = PAINTS[Math.floor(v / BODIES.length) % PAINTS.length];
   const seed = v * 131 + 7;
@@ -146,7 +154,7 @@ export function carPrims(v, cu = 0, cv = 0, roll = 0) {
     const h = hash(q.x, q.y, seed);
     // vitres : reflet en biais, éclats si cassées
     if (glassAt(q)) {
-      if (broken && x > 0 && ((q.x * 3 + q.y * 5) % 7 === 0 || h < 0.2)) return h < 0.1 ? GLASS[3] : INTERIOR[1]; // fêlures
+      if (broken && x > 0 && ((q.x * 3 + q.y * 5) % 13 === 0 || h < 0.06)) return h < 0.03 ? GLASS[3] : INTERIOR[1]; // fêlures
       const refl = ((n[2] > 0.3 ? x * 0.8 + (q.v - cv) * 1.3 : x + q.z * 0.9) + 64) % 10; // reflet en biais
       return refl < 1.3 ? GLASS[3] : refl < 2.2 ? GLASS[2] : GLASS[q.z > B.belt + 4 ? 1 : 0];
     }
@@ -182,7 +190,7 @@ export function carPrims(v, cu = 0, cv = 0, roll = 0) {
   H.smooth = true;
   const prims = [H];
   B.axles.forEach((a, i) => {
-    for (const side of [-1, 1]) prims.push(wheel(cu + a, cv + side * (B.hw - 2.3), B.wr, 1.8, flat === i * 2 + (side > 0 ? 1 : 0), roll));
+    for (const side of [-1, 1]) prims.push(wheel(cu + a, cv + side * (B.hw - 2.3), B.wr, 1.8, flat === i * 2 + (side > 0 ? 1 : 0), roll, a > 0 ? steer * 0.6 : 0));
   });
   // rétroviseurs
   for (const side of [-1, 1]) prims.push({ ...box(cu + B.win[1] - 0.4, cu + B.win[1] + 1.2, cv + side * (B.hw + 0.2) - 0.9, cv + side * (B.hw + 0.2) + 0.9, B.belt + 0.2, B.belt + 2, paint), smooth: true });
@@ -193,8 +201,9 @@ export function carPrims(v, cu = 0, cv = 0, roll = 0) {
 // (0 = vers +x). Le sprite est centré sur le milieu de la voiture.
 export const CAR_DIRS = 16;
 export const WHEEL_FRAMES = 3;
-export function carSprite(v, i, f = 0) {
-  return renderSolids(turnPrims(carPrims(v, 0, 0, f / WHEEL_FRAMES), (i % CAR_DIRS) * Math.PI * 2 / CAR_DIRS), 100, 100, 50, 62);
+// s : braquage des roues avant, 0 = gauche, 1 = droit, 2 = droite
+export function carSprite(v, i, f = 0, s = 1) {
+  return renderSolids(turnPrims(carPrims(v, 0, 0, f / WHEEL_FRAMES, s - 1), (i % CAR_DIRS) * Math.PI * 2 / CAR_DIRS), 100, 100, 50, 62);
 }
 // demi-longueur et demi-largeur en tuiles (pour les collisions)
 export function carSize(v) {
