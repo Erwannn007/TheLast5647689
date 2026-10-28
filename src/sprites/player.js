@@ -78,7 +78,10 @@ function bodyParts(pose) {
   for (const side of [-1, 1]) {
     const sh = tw([side * 3.75, 0.1, chestZ + 0.5]);
     let hand;
-    if (pose.act >= 0 && side === 1) {
+    if (pose.aim) {
+      // en joue : les deux mains en avant, à hauteur d'épaule, l'arme dans l'axe du buste
+      hand = tw(side === 1 ? [1.1, 6.2, chestZ - 0.4] : [-0.2, 8.4, chestZ - 0.1]);
+    } else if (pose.act >= 0 && side === 1) {
       // geste : on lève le bras puis on frappe vers l'avant
       const a = pose.act < 0.5 ? pose.act * 2 : 1 - (pose.act - 0.5) * 2;
       const up = Math.sin(a * Math.PI * 0.5);
@@ -99,6 +102,10 @@ function bodyParts(pose) {
     P.push({ a: sh, b: elbow, r1: 1.28, r2: 1.12, ramp: JACKET, group: 30 + side });
     P.push({ a: elbow, b: hand, r1: 1.1, r2: 0.95, ramp: JACKET, group: 30 + side, tex: sleeve });
     P.push({ a: hand, r1: 0.88, ramp: SKIN, group: 30 + side });
+    if (pose.aim && side === 1) {
+      P.push({ a: tw([0.7, 5.6, chestZ + 0.3]), b: tw([0.4, 11.2, chestZ + 0.8]), r1: 0.62, ramp: STEEL, group: 42, tex: (p) => Math.max(0, p.shade - 1) });
+      P.push({ a: tw([0.9, 4.4, chestZ - 0.4]), b: tw([0.8, 6.4, chestZ + 0.1]), r1: 0.85, ramp: WOOD, group: 43 });
+    }
     if (pose.act >= 0 && side === 1 && pose.tool) {
       const tip = add(hand, tw([0, 3.8 + (pose.act < 0.5 ? 0 : 2.5), 4 - (pose.act < 0.5 ? 0 : 7)]));
       P.push({ a: hand, b: tip, r1: 0.5, ramp: WOOD, group: 40 });
@@ -126,11 +133,13 @@ const twistOf = (o) => o * Math.PI / 4;
 
 // Renvoie { walk, idle, act } indexés [jambes 0..7][torsion 0..4][image], et run [direction][image]
 export function bakePlayer(tool = true) {
-  const out = { walk: [], idle: [], act: [], run: [] };
+  const out = { walk: [], idle: [], act: [], run: [], aim: [], aimWalk: [] };
   for (let d = 0; d < DIRS; d++) {
     out.run.push(Array.from({ length: RUN_FRAMES }, (_, f) => render({ phase: f / RUN_FRAMES, walk: 1, run: 1, breathe: 0, act: -1, twist: 0 }, d)));
     out.walk.push(TWISTS.map((o) => Array.from({ length: WALK_FRAMES }, (_, f) => render({ phase: f / WALK_FRAMES, walk: 1, breathe: 0, act: -1, twist: twistOf(o) }, d))));
     out.idle.push(TWISTS.map((o) => Array.from({ length: IDLE_FRAMES }, (_, f) => render({ phase: 0, walk: 0, breathe: Math.sin(f / IDLE_FRAMES * Math.PI * 2), act: -1, twist: twistOf(o) }, d))));
+    out.aim.push(TWISTS.map((o) => render({ phase: 0, walk: 0, breathe: 0, act: -1, aim: 1, twist: twistOf(o) }, d)));
+    out.aimWalk.push(TWISTS.map((o) => Array.from({ length: WALK_FRAMES }, (_, f) => render({ phase: f / WALK_FRAMES, walk: 1, breathe: 0, act: -1, aim: 1, twist: twistOf(o) }, d))));
     out.act.push(TWISTS.map((o) => Array.from({ length: ACT_FRAMES }, (_, f) => render({ phase: 0, walk: 0, breathe: 0, act: f / ACT_FRAMES, tool, twist: twistOf(o) }, d))));
   }
   return out;

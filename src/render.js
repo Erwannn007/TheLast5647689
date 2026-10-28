@@ -2,11 +2,14 @@
 import { ctx, view, draw, drawCols } from './gfx.js';
 import * as B from './bank.js';
 import { G, hour, holding, held } from './state.js';
-import { W, MAP, SIZE } from './world.js';
+import { W, MAP, SIZE, FLOOR_H } from './world.js';
 import { T, isWater, isFloor } from './sprites/tiles.js';
 import { hash } from './raster.js';
-import { facingVec, litFires, driving, carBox } from './game.js';
+import { facingVec, litFires, driving, carBox, powered } from './game.js';
+import { angleFromWorld, dirOfAngle } from './sprites/player.js';
 import { CAR_DIRS } from './sprites/cars.js';
+import { ITEMS } from './items.js';
+const ITEMS_GUN = Object.fromEntries(Object.entries(ITEMS).filter(([, d]) => d.gun).map(([k]) => [k, 1]));
 
 const WALLKIND = { [W.WALL]: 'wall', [W.WINDOW]: 'window', [W.BROKEN]: 'broken', [W.DOOR]: 'door', [W.OPEN]: 'open', [W.DOORWAY]: 'doorway' };
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => v / 16 - 0.5);
@@ -17,20 +20,24 @@ export const isoY = (x, y) => (x + y) * 8 + oy;
 // ---------------------------------------------------------------- particules
 const drops = [], splashes = [], leaves = [];
 
+let lamps = [], glows = [];
 export function renderWorld(dt, focus, showPlayer) {
   const w = G.world, p = G.p;
   const { W: VW, H: VH } = view;
+  const PL = showPlayer ? p.l || 0 : 0; // étage du joueur
   ox = Math.round(VW / 2 - (focus[0] - focus[1]) * 16);
-  oy = Math.round(VH / 2 - (focus[0] + focus[1]) * 8 + 12);
+  oy = Math.round(VH / 2 - (focus[0] + focus[1]) * 8 + 12 + PL * FLOOR_H);
+  lamps = []; glows = [];
+  const night = 1 - (ambient().reduce((a, v) => a + v, 0)) / 765 > 0.3, pw = powered();
   ctx.fillStyle = '#1a2216';
   ctx.fillRect(0, 0, VW, VH);
 
-  const pb = showPlayer ? w.inside(p.x, p.y) : -1;
+  const pb = showPlayer ? w.inside(p.x, p.y, PL) : -1;
   // Bâtiments ouverts (comme Project Zomboid) : celui où l'on est ('in'), et celui qui nous cache quand
   // on passe derrière ou sur le côté ('near') : son toit disparaît et les murs devant nous sont coupés.
   const open = new Map();
   if (pb >= 0) open.set(pb, 'in');
-  else if (showPlayer && !driving()) {
+  else if (showPlayer && !driving() && !PL) {
     for (const b of w.blds) {
       if (p.x > b.x0 - 3 && p.x < b.x1 + 0.6 && p.y > b.y0 - 3 && p.y < b.y1 + 0.6) open.set(b.id, 'near');
     }
@@ -64,90 +71,181 @@ export function renderWorld(dt, focus, showPlayer) {
   }
   const drv = showPlayer ? driving() : null;
   if (drv) B.warmCar(drv.v, ((Math.round(drv.ang / (Math.PI * 2 / CAR_DIRS)) % CAR_DIRS) + CAR_DIRS) % CAR_DIRS);
-  if (showPlayer && !p.sleeping && !drv) draw(B.S.shadows.player, Math.round(isoX(p.x, p.y)), Math.round(isoY(p.x, p.y)));
+  if (showPlayer && !p.sleeping && !drv && !PL) draw(B.S.shadows.player, Math.round(isoX(p.x, p.y)), Math.round(isoY(p.x, p.y)));
 
-  // --- objets
+  // --- objets (étage 0 et façades), triés par profondeur
   const list = [];
   const P = showPlayer ? p.x + p.y : -1e9;
-  for (let d = dmin; d <= dmaxO; d++) {
+  const G0 = w.L[0];
+  // mur devant ou derrière le joueur : on compare sur l'axe du mur fin
+  const wallDepth = (x, y, d, l) => {
+    let dd = d + 1 + l * 0.002;
+    if (showPlayer && l === PL && Math.abs(x + 0.5 - p.x) < 1.6 && Math.abs(y + 0.5 - p.y) < 1.6) {
+      const m = w.mask(x, y, l), cx = x + 0.5, cy = y + 0.5;
+      const front = (m & 3) && !(m & 12) ? p.y > cy : (m & 12) && !(m & 3) ? p.x > cx : p.x + p.y > cx + cy;
+      dd = front ? Math.min(dd, P - 0.01) : Math.max(dd, P + 0.01);
+    }
+    return dd;
+  };
+  for (let d = dmin; d <= dmaxO + 30; d++) {
     const [xa, xb] = xr(d, 40);
     for (let x = xa; x <= xb; x++) {
       const y = d - x;
       if (!w.inb(x, y)) {
-        // forêt au-delà du bord de la carte
-        if (hash(x, y, 77) < 0.42) list.push({ d: d + 1, kind: 'edge', x, y });
+        if (d <= dmaxO && hash(x, y, 77) < 0.42) list.push({ d: d + 1, kind: 'edge', x, y });
         continue;
       }
       const i = w.idx(x, y);
-      const k = w.wall[i];
+      const k = G0.wall[i];
       if (k) {
-        const bi = w.wbld[i], b = bi >= 0 ? w.blds[bi] : null;
+        const bi = G0.wbld[i], b = bi >= 0 ? w.blds[bi] : null;
         const border = b && (x === b.x0 || x === b.x1 || y === b.y0 || y === b.y1);
-        if (b && !border && !open.has(bi)) { /* cloison sous le toit */ }
-        else {
-          let dd = d + 1;
-          if (showPlayer && Math.abs(x + 0.5 - p.x) < 1.6 && Math.abs(y + 0.5 - p.y) < 1.6) {
-            // devant ou derrière un mur fin : on compare sur l'axe du mur
-            const m = w.mask(x, y), cx = x + 0.5, cy = y + 0.5;
-            const front = (m & 3) && !(m & 12) ? p.y > cy : (m & 12) && !(m & 3) ? p.x > cx : p.x + p.y > cx + cy;
-            dd = front ? Math.min(dd, P - 0.01) : Math.max(dd, P + 0.01);
+        const mode = b && open.get(bi);
+        // les étages se voient de loin : on monte plus haut que la fenêtre
+        if (d <= dmaxO + (b ? b.floors * 4 : 0)) {
+          if (b && !border && !(mode && PL === 0)) { /* cloison sous le toit */ }
+          else {
+            const cut = mode === 'in' && PL === 0 ? (x === b.x1 || y === b.y1 || (!border && x + y > pcx + pcy))
+              : mode === 'near' ? x + y > pcx + pcy - 2 : false;
+            list.push({ d: wallDepth(x, y, d, 0), kind: 'wall', x, y, k, b, cut, l: 0, z: 0 });
           }
-          const mode = b && open.get(bi);
-          const cut = mode === 'in' ? (x === b.x1 || y === b.y1 || (!border && x + y > pcx + pcy))
-            : mode === 'near' ? x + y > pcx + pcy - 2 : false;
-          list.push({ d: dd, kind: 'wall', x, y, k, b, cut });
+          // étages : façades empilées ; toit-terrasse et acrotère en haut
+          if (b && border && (b.floors > 1 || b.roof === 'flat')) {
+            const top = mode === 'near' ? 0 : mode === 'in' ? PL - 1 : b.floors - 1;
+            for (let l = 1; l <= top; l++) {
+              const kl = w.L[l].wall[i];
+              if (kl) list.push({ d: d + 1 + l * 0.002, kind: 'wall', x, y, k: kl, b, cut: false, l, z: l });
+            }
+            if (!mode && b.roof === 'flat') list.push({ d: d + 1 + b.floors * 0.002, kind: 'wall', x, y, k: W.WALL, b, cut: true, l: b.floors - 1, z: b.floors });
+          }
         }
       }
-      const oi = w.occ[i];
+      if (d > dmaxO) continue;
+      // toit-terrasse : une tuile par case, à la hauteur du dernier étage
+      const ri0 = G0.room[i] >= 0 ? G0.room[i] : k ? G0.wbld[i] : -1;
+      if (ri0 >= 0) {
+        const b = w.blds[ri0];
+        if (b.roof === 'flat' && !open.has(ri0)) list.push({ d: d + 1.4 + b.floors * 0.002, kind: 'rooftile', x, y, z: b.floors });
+      }
+      const oi = G0.occ[i];
       if (oi >= 0) {
         const o = w.objs[oi];
         if (o.x !== x || o.y !== y) continue;
-        const r = w.room[i];
-        if (r >= 0 && !open.has(r)) continue; // intérieur caché sous le toit
+        const r = G0.room[i];
+        if (r >= 0 && !(open.has(r) && PL === 0)) continue; // intérieur caché sous le toit
+        if (o.type === 'lamp') lamps.push(o);
         if (SIZE[o.type]) list.push(...strips(B.prop(o.type, o.k, o.v % 4), isoX(o.x + 0.5, o.y + 0.5), isoY(o.x + 0.5, o.y + 0.5), o.cells, d));
-        else list.push({ d: d + 1, kind: 'obj', o, x, y });
+        else list.push({ d: d + 1, kind: 'obj', o, x, y, z: 0 });
       }
     }
+  }
+  // climatiseurs sur les toits-terrasses
+  for (const b of w.blds) {
+    if (!b.hvac || open.has(b.id)) continue;
+    for (const [x, y] of b.hvac) list.push({ d: x + y + 1.6 + b.floors * 0.002, kind: 'obj', o: { type: 'hvac', k: 0, v: 0 }, x, y, z: b.floors });
   }
   // voitures libres : sprite de l'orientation la plus proche, découpé en colonnes
   for (const c of w.cars) {
     const X = isoX(c.x, c.y), Y = isoY(c.x, c.y);
     if (X < -70 || X > VW + 70 || Y < -40 || Y > VH + 90) continue;
     const i = ((Math.round(c.ang / (Math.PI * 2 / CAR_DIRS)) % CAR_DIRS) + CAR_DIRS) % CAR_DIRS;
-    // roues : rotation (phase plafonnée pour rester visible) et braquage des roues avant
     const f = c.wphase ? ((Math.floor(c.wphase) % 3) + 3) % 3 : 0;
     const st = !c.steer ? 1 : c.steer > 0.12 ? 2 : c.steer < -0.12 ? 0 : 1;
     list.push(...strips(B.car(c.v, i, f, st), Math.round(X), Math.round(Y), carCells(c), Math.floor(c.x + c.y)));
   }
-  // toits (sauf celui de la maison où l'on se trouve), découpés en colonnes
+  // animaux
+  for (const a of w.animals) {
+    const X = isoX(a.x, a.y), Y = isoY(a.x, a.y);
+    if (X < -40 || X > VW + 40 || Y < -10 || Y > VH + 60) continue;
+    list.push({ d: a.x + a.y, kind: 'animal', a });
+  }
+  // toits à deux pans (sauf maison ouverte), découpés en colonnes
   for (const b of w.blds) {
-    if (open.has(b.id)) continue;
+    if (open.has(b.id) || b.roof === 'flat') continue;
     const X = isoX(b.x0, b.y0), Y = isoY(b.x0, b.y0);
     if (X > VW + 200 || X < -400 || Y < -120 || Y > VH + 260) continue;
     list.push(...roofStrips(b));
   }
-  if (showPlayer && !p.sleeping && !drv) list.push({ d: P, kind: 'player' });
+  if (showPlayer && !p.sleeping && !drv && !PL) list.push({ d: P, kind: 'player' });
   list.sort((a, b) => a.d - b.d);
-
-  for (const it of list) {
-    if (it.kind === 'wall') drawWall(it);
-    else if (it.kind === 'obj') drawObj(it.o, it.x, it.y);
-    else if (it.kind === 'strip') drawCols(it.spr, it.X, it.Y, it.c0, it.c1);
-    else if (it.kind === 'player') drawPlayer(1);
-    else if (it.kind === 'edge') {
-      const X = isoX(it.x + 0.5, it.y + 0.5), Y = isoY(it.x + 0.5, it.y + 0.5);
-      const s = (hash(it.x, it.y, 5) * 1000) | 0;
-      draw(B.tree(hash(it.x, it.y, 6) < 0.6 ? 'pine' : 'oak', 'olive', s, sway4(s % 7 * 0.37, 1.3)), X, Y);
+  const flush = (L) => {
+    for (const it of L) {
+      if (it.kind === 'wall') drawWall(it, night && pw);
+      else if (it.kind === 'obj') drawObj(it.o, it.x, it.y, it.z);
+      else if (it.kind === 'strip') drawCols(it.spr, it.X, it.Y, it.c0, it.c1);
+      else if (it.kind === 'player') drawPlayer(1);
+      else if (it.kind === 'animal') drawAnimal(it.a);
+      else if (it.kind === 'rooftile') draw(B.S.tiles[T.ROOF][(hash(it.x, it.y, 1) * 4) | 0], isoX(it.x, it.y), isoY(it.x, it.y) - it.z * FLOOR_H);
+      else if (it.kind === 'floor') draw(B.S.tiles[it.t][(hash(it.x, it.y, 1) * 4) | 0], isoX(it.x, it.y), isoY(it.x, it.y) - it.z * FLOOR_H);
+      else if (it.kind === 'edge') {
+        const X = isoX(it.x + 0.5, it.y + 0.5), Y = isoY(it.x + 0.5, it.y + 0.5);
+        const sd = (hash(it.x, it.y, 5) * 1000) | 0;
+        draw(B.tree(hash(it.x, it.y, 6) < 0.6 ? 'pine' : 'oak', 'olive', sd, sway4(sd % 7 * 0.37, 1.3)), X, Y);
+      }
     }
+  };
+  flush(list);
+
+  // --- à l'étage : le plancher puis ce qu'il porte, par-dessus le reste
+  if (PL > 0 && pb >= 0) {
+    const b = w.blds[pb], L = w.L[PL], up = [];
+    for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) {
+      const i = w.idx(x, y), d = x + y;
+      up.push({ d: d + 0.5, kind: 'floor', x, y, z: PL, t: L.tile[i] || T.PLANK });
+      const k = L.wall[i];
+      if (k) {
+        const border = x === b.x0 || x === b.x1 || y === b.y0 || y === b.y1;
+        const cut = x === b.x1 || y === b.y1 || (!border && x + y > pcx + pcy);
+        up.push({ d: wallDepth(x, y, d, PL), kind: 'wall', x, y, k, b, cut, l: PL, z: PL });
+      }
+      const oi = L.occ[i];
+      if (oi >= 0) {
+        const o = w.objs[oi];
+        if (o.x !== x || o.y !== y) continue;
+        if (SIZE[o.type]) up.push(...strips(B.prop(o.type, o.k, o.v % 4), isoX(o.x + 0.5, o.y + 0.5), isoY(o.x + 0.5, o.y + 0.5) - PL * FLOOR_H, o.cells, d));
+        else up.push({ d: d + 1, kind: 'obj', o, x, y, z: PL });
+      }
+    }
+    if (showPlayer && !p.sleeping) up.push({ d: P, kind: 'player' });
+    up.sort((a, c) => a.d - c.d);
+    flush(up);
   }
+
   // fantôme du joueur : visible même derrière un décor
   if (showPlayer && !p.sleeping && !drv) { ctx.globalAlpha = 0.28; drawPlayer(0); ctx.globalAlpha = 1; }
   if (showPlayer && p.act && p.act.kind === 'fish') drawBobber(p.act.at);
 
   updateParticles(dt);
   drawParticles();
-  lighting(showPlayer);
+  lighting(showPlayer, night && pw, pb >= 0 ? w.blds[pb] : null, PL);
+  for (const [g, X, Y] of glows) draw(g, X, Y);
+  if (night && pw) for (const o of lamps) { const X = isoX(o.x + 0.5, o.y + 0.5), Y = isoY(o.x + 0.5, o.y + 0.5); ctx.fillStyle = '#fff0b8'; ctx.fillRect(X + 4, Y - 37, 3, 1); ctx.fillStyle = 'rgba(255,220,140,0.5)'; ctx.fillRect(X + 3, Y - 36, 5, 1); }
   drawFlames(true);
+  drawFx();
+}
+
+// traçantes, étincelles, sang, éclair de bouche
+function drawFx() {
+  for (const f of G.fx) {
+    const z = (f.l || 0) * FLOOR_H;
+    if (f.kind === 'tracer') {
+      const x0 = isoX(f.x0, f.y0), y0 = isoY(f.x0, f.y0) - 16 - z, x1 = isoX(f.x1, f.y1), y1 = isoY(f.x1, f.y1) - 14 - z;
+      const n = Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)));
+      ctx.fillStyle = 'rgba(255,240,190,0.85)';
+      for (let i = 0; i < n; i += 2) ctx.fillRect(Math.round(x0 + (x1 - x0) * i / n), Math.round(y0 + (y1 - y0) * i / n), 1, 1);
+    } else {
+      const X = Math.round(isoX(f.x, f.y)), Y = Math.round(isoY(f.x, f.y)) - 12 - z;
+      ctx.fillStyle = f.kind === 'blood' ? '#a01824' : '#ffe9a0';
+      const r = f.t > 0.15 ? 1 : 2;
+      ctx.fillRect(X - r, Y, 1, 1); ctx.fillRect(X + r, Y - 1, 1, 1); ctx.fillRect(X, Y - r, 1, 1); ctx.fillRect(X + 1, Y + r, 1, 1);
+    }
+  }
+  const fl = G.flash;
+  if (fl) {
+    const X = Math.round(isoX(fl.x, fl.y)), Y = Math.round(isoY(fl.x, fl.y)) - 16 - (fl.l || 0) * FLOOR_H;
+    ctx.fillStyle = '#fff6c8'; ctx.fillRect(X - 1, Y - 1, 3, 3);
+    ctx.fillStyle = '#ffb347'; ctx.fillRect(X - 3, Y, 2, 1); ctx.fillRect(X + 2, Y, 2, 1); ctx.fillRect(X, Y - 3, 1, 2); ctx.fillRect(X, Y + 2, 1, 2);
+  }
 }
 
 // cases sous une voiture (échantillonnage du rectangle orienté)
@@ -190,18 +288,22 @@ function roofStrips(b) {
   return out;
 }
 
-function drawWall(it) {
-  const { x, y, k, b, cut } = it;
-  const X = isoX(x + 0.5, y + 0.5), Y = isoY(x + 0.5, y + 0.5);
-  const w = G.world, m = w.mask(x, y);
+function drawWall(it, lit) {
+  const { x, y, k, b, cut, l = 0, z = 0 } = it;
+  const X = isoX(x + 0.5, y + 0.5), Y = isoY(x + 0.5, y + 0.5) - z * FLOOR_H;
+  const w = G.world, m = w.mask(x, y, l);
   if (k === W.FENCE) { draw(B.fence(m), X, Y); return; }
   const style = b ? b.style : { ext: 0, int: 0 };
   const intU = b && x < b.x1 ? 1 : 0, intV = b && y < b.y1 ? 1 : 0;
-  draw(B.wall(m, WALLKIND[k], style, intU, intV, cut ? 1 : 0), X, Y);
+  const s = B.wall(m, WALLKIND[k], style, intU, intV, cut ? 1 : 0, z > 0 ? 1 : 0);
+  draw(s.img, X, Y);
+  // la nuit, tant qu'il y a du courant, certaines fenêtres restent allumées (on les rallume après la nuit)
+  // seulement les façades tournées vers la caméra (les vitres vues de dos resteraient visibles à travers les toits)
+  if (lit && s.glow && b && !cut && (x === b.x1 || y === b.y1) && hash(b.id * 13 + z, (x * 3 + y * 5) >> 2, 9) < (b.style.ext === 7 ? 0.3 : 0.5)) glows.push([s.glow, X, Y]);
 }
 
-function drawObj(o, x, y) {
-  const X = isoX(x + 0.5, y + 0.5), Y = isoY(x + 0.5, y + 0.5);
+function drawObj(o, x, y, z = 0) {
+  const X = isoX(x + 0.5, y + 0.5), Y = isoY(x + 0.5, y + 0.5) - z * FLOOR_H;
   const ph = ((o.seed || x * 7 + y * 13) % 7) * 0.37;
   switch (o.type) {
     case 'tree': draw(B.tree(o.kind, o.pal || 'green', o.seed, Math.floor(G.swayT * 1.3 + ph) & 3), X, Y); break;
@@ -210,6 +312,7 @@ function drawObj(o, x, y) {
     case 'rock': draw(B.rock(o.v), X, Y); break;
     case 'grass': draw(B.grass(o.v, Math.floor(G.swayT * 1.8 + ph) % 3), X, Y); break;
     case 'reed': draw(B.reed(o.v, Math.floor(G.swayT * 1.5 + ph) % 3), X, Y); break;
+    case 'carcass': draw(B.carcass(o.kind), X, Y); break;
     default: draw(B.prop(o.type, o.k, o.v % 4), X, Y);
   }
   if (o.type === 'campfire' && o.fire.lit) draw(B.S.flames[Math.floor(G.clock * 8 + x) & 3], X, Y + 1);
@@ -222,7 +325,13 @@ function drawPlayer(full) {
   else if (p.moving && p.running) spr = S.run[l][Math.floor(p.anim * S.run[l].length) % S.run[l].length];
   else if (p.moving) { const f = Math.floor(p.anim * 8) & 7; spr = S.walk[l][t][p.back ? (8 - f) & 7 : f]; }
   else spr = S.idle[l][t][Math.floor(G.clock * 1.4) & 3];
-  const X = Math.round(isoX(p.x, p.y)), Y = Math.round(isoY(p.x, p.y)) + (p.sitting ? 3 : 0);
+  const X = Math.round(isoX(p.x, p.y)), Y = Math.round(isoY(p.x, p.y)) + (p.sitting ? 3 : 0) - (p.l || 0) * FLOOR_H;
+  // arme en joue
+  const h = held();
+  if (p.aiming && h && ITEMS_GUN[h.id] && !(p.act && p.act.anim === 'act')) {
+    const t2 = (p.twist || 0) + 2;
+    spr = p.moving ? S.aimWalk[l][t2][Math.floor(p.anim * 8) & 7] : S.aim[l][t2];
+  }
   draw(spr, X, Y);
   // ligne de visée : trois points dans la direction du buste
   if (full && p.aiming) {
@@ -231,6 +340,20 @@ function drawPlayer(full) {
     ctx.fillStyle = 'rgba(255,246,216,0.55)';
     for (const d of [22, 30, 38]) ctx.fillRect(Math.round(X + sx * k * d), Math.round(Y - 17 + sy * k * d), 1, 1);
   }
+}
+
+function drawAnimal(a) {
+  const A = B.S.animals, X = Math.round(isoX(a.x, a.y)), Y = Math.round(isoY(a.x, a.y));
+  const d = dirOfAngle(angleFromWorld(Math.cos(a.ang), Math.sin(a.ang)));
+  if (a.type === 'rabbit') {
+    const R = A.rabbit;
+    draw(a.moving ? R.hop[d][Math.floor(a.anim || 0) & 3] : R.idle[d][Math.floor(G.clock * 0.7 + a.x) & 1], X, Y);
+    return;
+  }
+  const D = a.buck ? A.stag : A.deer;
+  draw(B.S.shadows.small, X + 1, Y + 1);
+  if (!a.moving) draw(D.idle[d][Math.floor(G.clock * 0.4 + a.x) & 1], X, Y);
+  else draw((a.state === 'flee' ? D.run : D.walk)[d][Math.floor((a.anim || 0) * 8) & 7], X, Y);
 }
 
 function drawBobber(at) {
@@ -321,17 +444,24 @@ export function ambient() {
   return mix(c, [c[0] * 0.7, c[1] * 0.74, c[2] * 0.8], r);
 }
 
-function lighting(showPlayer) {
+function lighting(showPlayer, cityLit, inBld, PL) {
   const { W: VW, H: VH } = view;
   const amb = ambient();
   const dark = 1 - (amb[0] + amb[1] + amb[2]) / (3 * 255);
   const sources = [];
+  const ez = (PL || 0) * FLOOR_H;
+  if (cityLit) {
+    for (const o of lamps) sources.push({ x: isoX(o.x + 0.5, o.y + 0.5) + 6, y: isoY(o.x + 0.5, o.y + 0.5) - 8, r: 58, col: [255, 214, 150], k: 0.85 });
+    // dans un bâtiment encore alimenté, les plafonniers éclairent tout l'étage
+    if (inBld) sources.push({ rect: [inBld.x0, inBld.y0, inBld.x1 + 1, inBld.y1 + 1], z: ez, col: [255, 228, 186], k: 0.8 });
+  }
+  if (G.flash) { const f = G.flash; sources.push({ x: isoX(f.x, f.y), y: isoY(f.x, f.y) - 12 - (f.l || 0) * FLOOR_H, r: 70, col: [255, 236, 180], k: 1 }); }
   if (showPlayer && dark > 0.25) {
     const p = G.p, h = held();
     if (h && h.id === 'lampe' && h.d > 0 && !driving()) {
       const [fx, fy] = facingVec(p.dir);
       const sx = (fx - fy) * 16, sy = (fx + fy) * 8, l = Math.hypot(sx, sy);
-      sources.push({ x: isoX(p.x, p.y), y: isoY(p.x, p.y) - 8, dx: sx / l, dy: sy / l, r: 96, cone: 0.82, col: [255, 244, 214], k: 1 });
+      sources.push({ x: isoX(p.x, p.y), y: isoY(p.x, p.y) - 8 - ez, dx: sx / l, dy: sy / l, r: 96, cone: 0.82, col: [255, 244, 214], k: 1 });
     }
     const c = driving();
     if (c && c.fuel > 0) {
@@ -340,7 +470,7 @@ function lighting(showPlayer) {
       const sx = (B.ux - B.uy) * 16, sy = (B.ux + B.uy) * 8, l = Math.hypot(sx, sy);
       sources.push({ x: isoX(fx, fy), y: isoY(fx, fy) - 4, dx: sx / l, dy: sy / l, r: 150, cone: 0.86, col: [255, 240, 200], k: 1 });
     }
-    if (!c) sources.push({ x: isoX(p.x, p.y), y: isoY(p.x, p.y) - 10, r: 26, col: [150, 160, 200], k: 0.45 });
+    if (!c) sources.push({ x: isoX(p.x, p.y), y: isoY(p.x, p.y) - 10 - ez, r: 26, col: [150, 160, 200], k: 0.45 });
   }
   for (const o of litFires()) {
     const fl = 0.9 + Math.sin(G.clock * 9 + o.x) * 0.05 + Math.sin(G.clock * 23) * 0.04;
@@ -362,6 +492,14 @@ function lighting(showPlayer) {
       let r = amb[0], g = amb[1], b = amb[2];
       const dith = BAYER[(by & 3) * 4 + (bx & 3)];
       for (const s of sources) {
+        if (s.rect) {
+          // pixel -> case au sol de l'étage, éclairée si elle est dans le bâtiment
+          const wx = ((px - ox) / 16 + (py + s.z - oy) / 8) / 2, wy = ((py + s.z - oy) / 8 - (px - ox) / 16) / 2;
+          if (wx < s.rect[0] || wy < s.rect[1] || wx > s.rect[2] || wy > s.rect[3]) continue;
+          const q = Math.max(0, Math.min(4, Math.floor(s.k * 4 + dith * 0.9))) / 4;
+          r += (s.col[0] - r) * q; g += (s.col[1] - g) * q; b += (s.col[2] - b) * q;
+          continue;
+        }
         const dx = px - s.x, dy = (py - s.y) * 1.6, d = Math.hypot(dx, dy);
         if (d > s.r) continue;
         let I = (1 - d / s.r) * s.k;

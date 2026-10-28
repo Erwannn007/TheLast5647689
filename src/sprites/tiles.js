@@ -1,10 +1,11 @@
 // Tuiles de sol isométriques (losange 32x16, monde plat) : un dessus en 4 tons + grain hash.
 import { makeBuffer, hash, hex } from '../raster.js';
-import { GROUND, ROAD_PAINT, ROAD_WHITE } from '../palette.js';
+import { GROUND, ROAD_PAINT, ROAD_WHITE, CROPS } from '../palette.js';
 
 export const T = {
   GRASS: 0, DRY: 1, FOREST: 2, DIRT: 3, PATH: 4, ASPHALT: 5, SIDEWALK: 6, PLANK: 7, LINO: 8,
   TILES: 9, CARPET: 10, SAND: 11, WATER: 12, ROAD_LX: 13, ROAD_LY: 14, PARK: 15,
+  FIELD: 16, ROOF: 17, COBBLE: 18, GRAVEL: 19, OFFICE: 20, CONCRETE: 21,
 };
 export const TILE_W = 32, TILE_H = 16;
 export const WATER_FRAMES = 4;
@@ -14,11 +15,13 @@ const RAMP = {
   [T.PATH]: GROUND.path, [T.ASPHALT]: GROUND.asphalt, [T.SIDEWALK]: GROUND.sidewalk, [T.PLANK]: GROUND.plank,
   [T.LINO]: GROUND.lino, [T.TILES]: GROUND.tiles, [T.CARPET]: GROUND.carpet, [T.SAND]: GROUND.sand,
   [T.WATER]: GROUND.water, [T.ROAD_LX]: GROUND.asphalt, [T.ROAD_LY]: GROUND.asphalt, [T.PARK]: GROUND.asphalt,
+  [T.FIELD]: GROUND.field, [T.ROOF]: GROUND.roof, [T.COBBLE]: GROUND.cobble, [T.GRAVEL]: GROUND.gravel,
+  [T.OFFICE]: GROUND.office, [T.CONCRETE]: GROUND.concrete,
 };
 export const isWater = (t) => t === T.WATER;
 export const isRoad = (t) => t === T.ASPHALT || t === T.ROAD_LX || t === T.ROAD_LY || t === T.PARK;
-export const isFloor = (t) => t === T.PLANK || t === T.LINO || t === T.TILES || t === T.CARPET;
-export const isSoft = (t) => t === T.GRASS || t === T.DRY || t === T.FOREST || t === T.DIRT || t === T.PATH || t === T.SAND;
+export const isFloor = (t) => t === T.PLANK || t === T.LINO || t === T.TILES || t === T.CARPET || t === T.OFFICE || t === T.CONCRETE;
+export const isSoft = (t) => t === T.GRASS || t === T.DRY || t === T.FOREST || t === T.DIRT || t === T.PATH || t === T.SAND || t === T.FIELD;
 
 // Largeur de la ligne r du losange (0..15) : de 14-2r à 17+2r.
 export function rowSpan(r) {
@@ -87,6 +90,22 @@ export function tileBuffer(type, v, frame = 0) {
       if (h > 0.97) s = 3;
     }
     if (type === T.CARPET) s = h < 0.25 ? 0 : h > 0.9 ? 2 : 1;
+    if (type === T.OFFICE) { const q = ((Math.floor((u + 8) / 8) + Math.floor((w + 8) / 8)) & 1); s = (h < 0.2 ? 0 : 1) + q; }
+    if (type === T.CONCRETE) { const ju = ((u + 8) % 16 + 16) % 16; s = ju < 0.6 ? 0 : h < 0.1 ? 1 : h > 0.92 ? 3 : 2; }
+    if (type === T.ROOF) { s = h < 0.18 ? 0 : h > 0.9 ? 2 : 1; if (hash(x >> 1, r, seed + 4) > 0.97) s = 3; }
+    if (type === T.GRAVEL) { s = h < 0.22 ? 0 : h > 0.8 ? 2 : 1; if (h > 0.96) s = 3; }
+    if (type === T.COBBLE) {
+      // pavés : rangées décalées de 4x4, joints sombres
+      const row = Math.floor((w + 8) / 4), ju = ((u + 8 + (row & 1) * 2) % 4 + 4) % 4, jw = ((w + 8) % 4 + 4) % 4;
+      s = ju < 0.7 || jw < 0.7 ? 0 : h < 0.15 ? 1 : h > 0.85 ? 3 : 2;
+    }
+    if (type === T.FIELD) {
+      // sillons le long de u, chaumes secs sur les crêtes
+      const f = ((w + 8) % 4 + 4) % 4;
+      s = f < 1.3 ? 0 : f < 2.2 ? 1 : 2;
+      if (h > 0.93) s = 3;
+      if (f > 2.4 && f < 3.4 && hash(x, r >> 1, seed + 2) < 0.22) { b.set(x, r, CROPS[h > 0.5 ? 2 : 1]); if (r > 0) b.set(x, r - 1, CROPS[3]); return; }
+    }
     if (type === T.WATER) {
       s = 1;
       const ph = frame / WATER_FRAMES * Math.PI * 2;

@@ -18,6 +18,7 @@ const groups = {
     for (const k of ['window', 'broken', 'door', 'open', 'doorway']) { s.push(b.wallSprite(3, k, st, 0, 0, false).img, b.wallSprite(12, k, { ...st, ext: 1 }, 0, 1, false).img); }
     s.push(b.wallSprite(3, 'wall', st, 0, 0, true).img, b.wallSprite(10, 'door', st, 0, 0, true).img);
     for (const m of [3, 12, 6, 15]) s.push(b.fenceSprite(m).img);
+    for (let e = 5; e < 10; e++) { s.push(b.wallSprite(3, 'wall', { ext: e, int: 0 }, 0, 0, false).img, b.wallSprite(3, 'window', { ext: e, int: 0 }, 0, 0, false, 1).img); const g = b.wallSprite(12, 'window', { ext: e, int: 0 }, 1, 0, false).glow; if (g) s.push(g); }
     s.push(b.roofSprite(7, 5, { ext: 1, roof: 0 }, 1).img, b.roofSprite(5, 8, { ext: 2, roof: 2 }, 2).img, b.roofSprite(9, 7, { ext: 0, roof: 3 }, 2).img);
     sheet('build', s, { scale: 3, cols: 10 });
   },
@@ -25,7 +26,7 @@ const groups = {
     const p = await import('../src/sprites/props.js');
     const s = [];
     for (const n of p.PROP_NAMES) s.push(p.propSprite(n, 0, 1).img);
-    for (const n of ['counter', 'wardrobe', 'bed', 'car']) s.push(p.propSprite(n, 3, 0).img);
+    for (const n of ['counter', 'wardrobe', 'bed', 'desk']) s.push(p.propSprite(n, 3, 0).img);
     sheet('props', s, { scale: 3, cols: 11 });
   },
   async player() {
@@ -51,6 +52,10 @@ const groups = {
     for (const st of [0, 2]) for (const i of [2, 5]) s.push(c.carSprite(5, i, 0, st).img);
     console.log('ms par voiture', (Date.now() - t) / 23);
     sheet('cars', s, { scale: 3, cols: 4 });
+  },
+  async icons() {
+    const p = await import('../src/sprites/icons.js');
+    sheet('icons', Object.keys(p.ICONS).map((k) => p.iconBuffer(k)), { scale: 6, cols: 12, bg: [58, 52, 46] });
   },
   async tiles() {
     const t = await import('../src/sprites/tiles.js');

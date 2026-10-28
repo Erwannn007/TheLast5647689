@@ -1,6 +1,6 @@
 // Règles du jeu : déplacement, collisions, interactions, actions longues, survie, météo, feux, sauvegarde.
-import { G, newPlayer, say, addTo, has, held, holding, hour } from './state.js';
-import { World, generate, W, SOLID, LABEL, CONTAINERS } from './world.js';
+import { G, newPlayer, say, addTo, has, held, holding, hour, count, take } from './state.js';
+import { generate, W, SOLID, LABEL, CONTAINERS } from './world.js';
 import { ITEMS, makeStack, COOK_TIME, NOTES, PHOTOS, JOURNALS, BROADCASTS } from './items.js';
 import { isWater } from './sprites/tiles.js';
 import { DIRS, angleFromWorld, dirOfAngle, WALK_CYCLE, RUN_CYCLE } from './sprites/player.js';
@@ -8,7 +8,7 @@ import { sfx, setEngine } from './audio.js';
 import { carSize } from './sprites/cars.js';
 import { isRoad } from './sprites/tiles.js';
 
-const SAVE_KEY = 'thelast-save-v3'; // v3 : voitures libres (conduite)
+const SAVE_KEY = 'thelast-save-v4'; // v4 : grande carte, étages ; on ne sauve que les différences
 const R = 0.17; // demi-taille du joueur (tuiles)
 const TWIST_MAX = Math.PI / 2; // le buste tourne au plus d'un quart de tour par rapport aux jambes
 const angDiff = (a, b) => { let d = (a - b) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; return d; };
@@ -20,10 +20,13 @@ export function newGame(keep) {
   if (!keep) { G.seed = (Math.random() * 1e9) | 0; G.world = generate(G.seed); }
   G.p = newPlayer(G.world.start[0], G.world.start[1]);
   G.time = 8 * 60;
+  // le courant tient encore deux à cinq jours, puis la ville s'éteint
+  G.powerOff = (2 + Math.random() * 3) * 1440 + 19 * 60;
   G.weather = { rain: 0, target: 0, next: 240 };
   G.radio = 0;
   G.ui = { kind: 'text', title: 'Jour 1', text: START_NOTE + '\n\nLa ville est à vous. Trouvez à manger, à boire, et un endroit où dormir.' };
   G.mode = 'play';
+  G.wasPowered = true;
   refreshFires();
   save();
 }
@@ -32,18 +35,20 @@ export function save() {
   if (G.mode !== 'play' || !G.world) return;
   try {
     const { cursor, act, ...p } = G.p;
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ seed: G.seed, time: G.time, weather: G.weather, radio: G.radio, p, world: G.world.toJSON() }));
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ seed: G.seed, time: G.time, weather: G.weather, radio: G.radio, powerOff: G.powerOff, p, world: G.world.diff() }));
   } catch (e) { /* stockage plein ou bloqué : on joue sans sauvegarde */ }
 }
 export function hasSave() { try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; } }
 export function load() {
   try {
     const j = JSON.parse(localStorage.getItem(SAVE_KEY));
-    G.seed = j.seed; G.time = j.time; G.weather = j.weather; G.radio = j.radio || 0;
-    G.world = World.fromJSON(j.world);
+    G.seed = j.seed; G.time = j.time; G.weather = j.weather; G.radio = j.radio || 0; G.powerOff = j.powerOff || 0;
+    G.world = generate(j.seed);
+    G.world.applyDiff(j.world);
     G.p = { ...newPlayer(0, 0), ...j.p, act: null, cursor: null, sleeping: false, sitting: false };
     G.mode = 'play';
     G.ui = null;
+    G.wasPowered = powered();
     refreshFires();
     return true;
   } catch (e) { return false; }
@@ -52,14 +57,15 @@ export function wipe() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { 
 
 // ---------------------------------------------------------------- collisions
 // boîtes de collision d'une case, en coordonnées monde
-export function cellBoxes(x, y, out) {
-  const w = G.world;
-  if (!w.inb(x, y)) { out.push([x, y, x + 1, y + 1]); return; }
+export function cellBoxes(x, y, out, l = 0) {
+  const w = G.world, L = w.lay(l);
+  if (!w.inb(x, y) || !L) { out.push([x, y, x + 1, y + 1]); return; }
   const i = w.idx(x, y);
-  if (isWater(w.tile[i])) { out.push([x, y, x + 1, y + 1]); return; }
-  const k = w.wall[i];
+  if (isWater(L.tile[i])) { out.push([x, y, x + 1, y + 1]); return; }
+  const k = L.wall[i];
+  if (l && !L.tile[i] && !k) { out.push([x, y, x + 1, y + 1]); return; } // le vide, à l'étage
   if (k) {
-    const m = w.mask(x, y), cx = x + 0.5, cy = y + 0.5;
+    const m = w.mask(x, y, l), cx = x + 0.5, cy = y + 0.5;
     const t = k === W.FENCE ? 0.07 : 0.13;
     const straightX = (m & 3) === 3 && !(m & 12), straightY = (m & 12) === 12 && !(m & 3);
     if ((k === W.OPEN || k === W.DOORWAY) && (straightX || straightY)) {
@@ -74,7 +80,7 @@ export function cellBoxes(x, y, out) {
       if (m & 8) out.push([cx - t, cy, cx + t, y + 1]);
     }
   }
-  const o = w.occ[i] >= 0 ? w.objs[w.occ[i]] : null;
+  const o = L.occ[i] >= 0 ? w.objs[L.occ[i]] : null;
   if (o && SOLID[o.type]) {
     const s = SOLID[o.type];
     out.push([x + 0.5 - s, y + 0.5 - s, x + 0.5 + s, y + 0.5 + s]);
@@ -82,9 +88,9 @@ export function cellBoxes(x, y, out) {
 }
 
 const boxes = [];
-function hit(x, y, r) {
+function hit(x, y, r, l = G.p ? G.p.l || 0 : 0) {
   boxes.length = 0;
-  for (let cy = Math.floor(y - r) - 1; cy <= Math.floor(y + r) + 1; cy++) for (let cx = Math.floor(x - r) - 1; cx <= Math.floor(x + r) + 1; cx++) cellBoxes(cx, cy, boxes);
+  for (let cy = Math.floor(y - r) - 1; cy <= Math.floor(y + r) + 1; cy++) for (let cx = Math.floor(x - r) - 1; cx <= Math.floor(x + r) + 1; cx++) cellBoxes(cx, cy, boxes, l);
   for (const b of boxes) if (x + r > b[0] && x - r < b[2] && y + r > b[1] && y - r < b[3]) return b;
   return null;
 }
@@ -92,12 +98,12 @@ function move(p, vx, vy, dt) {
   let nx = p.x + vx * dt;
   let b = hit(nx, p.y, R);
   if (b) nx = vx > 0 ? b[0] - R - 1e-4 : vx < 0 ? b[2] + R + 1e-4 : p.x;
-  if (hit(nx, p.y, R) || carHit(nx, p.y, R)) nx = p.x;
+  if (hit(nx, p.y, R) || (!p.l && carHit(nx, p.y, R))) nx = p.x;
   p.x = nx;
   let ny = p.y + vy * dt;
   b = hit(p.x, ny, R);
   if (b) ny = vy > 0 ? b[1] - R - 1e-4 : vy < 0 ? b[3] + R + 1e-4 : p.y;
-  if (hit(p.x, ny, R) || carHit(p.x, ny, R)) ny = p.y;
+  if (hit(p.x, ny, R) || (!p.l && carHit(p.x, ny, R))) ny = p.y;
   p.y = ny;
 }
 
@@ -124,7 +130,7 @@ export function carHit(x, y, r, except) {
 // une voiture à cette place toucherait-elle un mur, un arbre, l'eau, une autre voiture ?
 export function carBlocked(c, x, y, ang) {
   const A = carBox(c, x, y, ang), bx = [];
-  for (let cy = Math.floor(y - 2.3); cy <= Math.floor(y + 2.3); cy++) for (let cx = Math.floor(x - 2.3); cx <= Math.floor(x + 2.3); cx++) cellBoxes(cx, cy, bx);
+  for (let cy = Math.floor(y - 2.3); cy <= Math.floor(y + 2.3); cy++) for (let cx = Math.floor(x - 2.3); cx <= Math.floor(x + 2.3); cx++) cellBoxes(cx, cy, bx, 0);
   for (const b of bx) if (overlap(A, aabb(b))) return true;
   for (const o of G.world.cars) if (o !== c && Math.abs(o.x - x) < 5 && Math.abs(o.y - y) < 5 && overlap(A, carBox(o))) return true;
   return false;
@@ -152,7 +158,7 @@ function exitCar() {
   // côté conducteur, puis passager, puis derrière, puis devant
   for (const [a, b] of [[0.3, -(B.hw + 0.32)], [0.3, B.hw + 0.32], [-(B.hl + 0.35), 0], [B.hl + 0.35, 0]]) {
     const x = c.x + a * B.ux - b * B.uy, y = c.y + a * B.uy + b * B.ux;
-    if (!hit(x, y, R) && !carHit(x, y, R)) {
+    if (!hit(x, y, R, 0) && !carHit(x, y, R)) {
       p.x = x; p.y = y; p.driving = -1; c.speed = 0; c.steer = 0; G.lead = [0, 0];
       p.legsA = Math.atan2(B.ux - B.uy, B.ux + B.uy);
       setEngine(0, false);
@@ -166,30 +172,38 @@ function exitCar() {
 // Conduite : GAZ et FREIN (frein à l'arrêt = marche arrière), un volant à l'écran pour braquer
 // (tourné vers la droite = la voiture tourne à droite, vu du conducteur). Modèle « bicyclette » : la voiture tourne autour de ses roues arrière, d'autant
 // moins vite que le braquage est limité à haute vitesse ; elle roule en roue libre sans pédale.
-const WHEELBASE = 2.3, STEER_MAX = 0.62, VMAX = 11, VREV = 3.6;
+const WHEELBASE = 2.3, STEER_MAX = 0.6, VMAX = 8, VREV = 3;
 let emptyWarned = 0;
 function drive(c, dt, input) {
   const p = G.p, w = G.world;
   const free = !(G.ui && G.ui.kind !== 'text');
   // braquage voulu : le nez vers le joystick (en marche arrière on contre-braque pour garder ce sens)
-  // volant : -1 (tout à gauche) .. 1 (tout à droite) ; lâché, il revient seul au centre
+  // deux façons de braquer (réglage du menu) :
+  // - joystick : le nez de la voiture va vers la direction du pouce, comme pour marcher ;
+  // - volant : -1 (tout à gauche) .. 1 (tout à droite), il revient seul au centre quand on le lâche.
   if (!input.wheelHeld) input.wheel = (input.wheel || 0) * Math.max(0, 1 - dt * 5);
-  const lim = STEER_MAX / (1 + Math.abs(c.speed) * 0.06);
-  const want = free ? Math.max(-1, Math.min(1, input.wheel || 0)) * lim : 0;
+  const lim = STEER_MAX / (1 + Math.abs(c.speed) * 0.07);
+  let want = 0;
+  if (free && G.settings.drive === 'wheel') want = Math.max(-1, Math.min(1, input.wheel || 0)) * lim;
+  else if (free && input.mag > 0.2) {
+    const wx = input.x / 32 + input.y / 16, wy = input.y / 16 - input.x / 32;
+    const d = angDiff(Math.atan2(wy, wx), c.ang);
+    want = Math.max(-lim, Math.min(lim, d * 1.4)) * (c.speed < -0.1 ? -1 : 1);
+  }
   c.steer = c.steer || 0;
-  c.steer += Math.max(-5 * dt, Math.min(5 * dt, want - c.steer));
+  c.steer += Math.max(-3 * dt, Math.min(3 * dt, want - c.steer));
   // pédales
   const t = w.T(Math.floor(c.x), Math.floor(c.y));
   const rough = !isRoad(t) && t !== 6 && t !== 4;
-  const vmax = rough ? 5 : VMAX;
+  const vmax = rough ? 4 : VMAX;
   const gas = free && input.gas, brake = free && input.brake, fuel = c.fuel > 0;
   let a = -Math.sign(c.speed) * (rough ? 3.5 : 1.4); // roue libre
   if (gas) {
-    if (c.speed < -0.3) a = 14;
-    else if (fuel) a = 6.5 * Math.max(0.12, 1 - c.speed / vmax);
+    if (c.speed < -0.3) a = 10;
+    else if (fuel) a = 4.2 * Math.max(0.15, 1 - c.speed / vmax);
   } else if (brake) {
-    if (c.speed > 0.3) a = -14;
-    else if (fuel) a = -4 * Math.max(0.15, 1 + c.speed / VREV);
+    if (c.speed > 0.3) a = -10;
+    else if (fuel) a = -3 * Math.max(0.15, 1 + c.speed / VREV);
   }
   if ((gas || brake) && !fuel && G.clock - emptyWarned > 4) { emptyWarned = G.clock; say('Plus d\'essence.'); }
   const before = c.speed;
@@ -228,7 +242,7 @@ function clear(x0, y0, x1, y1, skip) {
     const cx = Math.floor(x), cy = Math.floor(y);
     if (skip.some(([a, b]) => a === cx && b === cy)) continue;
     bx.length = 0;
-    cellBoxes(cx, cy, bx);
+    cellBoxes(cx, cy, bx, G.p.l || 0);
     for (const b of bx) if (x > b[0] && x < b[2] && y > b[1] && y < b[3]) return false;
   }
   return true;
@@ -240,7 +254,7 @@ export const facingVec = (d) => {
   return [dx / l, dy / l];
 };
 
-export const inBuilding = (x, y) => G.world.inside(x, y);
+export const inBuilding = (x, y) => G.world.inside(x, y, G.p ? G.p.l || 0 : 0);
 
 // ---------------------------------------------------------------- objets reçus / jetés
 export function give(stack, quiet) {
@@ -249,15 +263,15 @@ export function give(stack, quiet) {
   if (rest) { drop(rest); say('Sac plein : posé au sol.'); }
 }
 export function drop(stack) {
-  const w = G.world, px = Math.floor(G.p.x), py = Math.floor(G.p.y);
+  const w = G.world, px = Math.floor(G.p.x), py = Math.floor(G.p.y), l = G.p.l || 0;
   for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
-    const o = w.obj(px + dx, py + dy);
+    const o = w.obj(px + dx, py + dy, l);
     if (o && o.type === 'bag' && !addTo(o.inv, stack)) return o;
   }
   for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
     const x = px + dx, y = py + dy;
-    if (!w.inb(x, y) || w.occ[w.idx(x, y)] >= 0 || isWater(w.T(x, y)) || (w.wall[w.idx(x, y)] && w.wall[w.idx(x, y)] !== W.DOORWAY && w.wall[w.idx(x, y)] !== W.OPEN)) continue;
-    const o = w.addObj({ type: 'bag', x, y, k: 0, v: 0, inv: new Array(9).fill(null) });
+    if (!w.walkable(x, y, l) || w.obj(x, y, l)) continue;
+    const o = w.addObj({ type: 'bag', x, y, l, k: 0, v: 0, inv: new Array(9).fill(null) });
     addTo(o.inv, stack);
     return o;
   }
@@ -317,23 +331,24 @@ function actionsFor(t) {
     return a;
   }
   if (t.kind === 'wall') {
-    const i = w.idx(t.x, t.y), k = w.wall[i];
+    const l = t.l || 0, L = w.lay(l), i = w.idx(t.x, t.y), k = L.wall[i];
+    const setW = (v) => w.setWall(t.x, t.y, l, v);
     if (k === W.DOOR) {
-      if (w.lock[i]) {
-        if (holding('pied_de_biche') || holding('hache')) return [{ label: 'FORCER', fn: () => busy('force', 2.2, () => { w.lock[i] = 0; w.wall[i] = W.OPEN; sfx('break'); say('La serrure a cédé.'); }, { anim: 'act' }) }];
+      if (L.lock[i]) {
+        if (holding('pied_de_biche') || holding('hache')) return [{ label: 'FORCER', fn: () => busy('force', 2.2, () => { w.setLock(t.x, t.y, l, 0); setW(W.OPEN); sfx('break'); say('La serrure a cédé.'); }, { anim: 'act' }) }];
         return [{ label: 'VERROUILLÉE', fn: () => { sfx('locked'); say('Fermée à clé. Un pied-de-biche ou une fenêtre ?'); } }];
       }
-      return [{ label: 'OUVRIR', fn: () => { w.wall[i] = W.OPEN; sfx('door'); } }];
+      return [{ label: 'OUVRIR', fn: () => { setW(W.OPEN); sfx('door'); } }];
     }
     if (k === W.OPEN) {
       // pas de porte refermée sur le joueur
       return [{ label: 'FERMER', fn: () => {
         const cx = t.x + 0.5, cy = t.y + 0.5;
         if (Math.abs(p.x - cx) < 0.5 + R && Math.abs(p.y - cy) < 0.5 + R) { say('Vous êtes dans le passage.'); return; }
-        w.wall[i] = W.DOOR; sfx('door');
+        setW(W.DOOR); sfx('door');
       } }];
     }
-    if (k === W.WINDOW) return [{ label: 'BRISER', fn: () => busy('smash', 0.7, () => { w.wall[i] = W.BROKEN; sfx('glass'); hurt(cutChance(0.5), 'avec le verre'); }, { anim: 'act' }) }];
+    if (k === W.WINDOW) return [{ label: 'BRISER', fn: () => busy('smash', 0.7, () => { setW(W.BROKEN); sfx('glass'); hurt(cutChance(0.5), 'avec le verre'); }, { anim: 'act' }) }];
     if (k === W.BROKEN) return [{ label: 'ENJAMBER', fn: () => climb(t) }];
     return [];
   }
@@ -341,22 +356,22 @@ function actionsFor(t) {
   const label = (LABEL[type] || '').toUpperCase();
   if (type === 'tree') {
     if (holding('hache')) a.push({ label: 'ABATTRE', fn: () => busy('chop', 3.2, () => fell(o), { anim: 'act', sound: 'chop' }) });
-    if (!o.picked && o.kind !== 'pine') a.push({ label: 'BRANCHES', fn: () => busy('gather', 1.2, () => { o.picked = 1; give(makeStack('branche', 1 + (Math.random() * 2 | 0))); }, { anim: 'act' }) });
+    if (!o.picked && o.kind !== 'pine') a.push({ label: 'BRANCHES', fn: () => busy('gather', 1.2, () => { o.picked = 1; o.dirty = 1; give(makeStack('branche', 1 + (Math.random() * 2 | 0))); }, { anim: 'act' }) });
     if (!a.length) return [];
     return a;
   }
   if (type === 'berry') {
-    if ((o.regrow || 0) <= G.time) a.push({ label: 'CUEILLIR', fn: () => busy('gather', 1.4, () => { o.regrow = G.time + 2 * 1440; give(makeStack('baies', 3 + (Math.random() * 4 | 0))); sfx('leaves'); }, { anim: 'act' }) });
+    if ((o.regrow || 0) <= G.time) a.push({ label: 'CUEILLIR', fn: () => busy('gather', 1.4, () => { o.regrow = G.time + 2 * 1440; o.dirty = 1; give(makeStack('baies', 3 + (Math.random() * 4 | 0))); sfx('leaves'); }, { anim: 'act' }) });
     return a;
   }
   if (type === 'bush') {
-    if (!o.picked) a.push({ label: 'BRANCHES', fn: () => busy('gather', 1.2, () => { o.picked = 1; give(makeStack('branche', 1)); sfx('leaves'); }, { anim: 'act' }) });
+    if (!o.picked) a.push({ label: 'BRANCHES', fn: () => busy('gather', 1.2, () => { o.picked = 1; o.dirty = 1; give(makeStack('branche', 1)); sfx('leaves'); }, { anim: 'act' }) });
     return a;
   }
   if (type === 'pump') return waterActions('eau', false, () => true);
   if (type === 'toilet') {
     const i = w.idx(o.x, o.y);
-    return waterActions('eau', true, () => { if (w.water[i] <= 0) { say('Le réservoir est vide.'); return false; } w.water[i]--; return true; });
+    return waterActions('eau', true, () => { const L = w.lay(o.l || 0); if (L.water[i] <= 0) { say('Le réservoir est vide.'); return false; } w.setWater(o.x, o.y, o.l || 0, L.water[i] - 1); return true; });
   }
   if (type === 'campfire') {
     const f = o.fire;
@@ -364,11 +379,26 @@ function actionsFor(t) {
     a.push({ label: 'FEU', fn: () => openUI({ kind: 'fire', obj: o }) });
     return a;
   }
+  if (type === 'stairs') return [{ label: 'MONTER', fn: () => climbStairs(o, 1) }];
+  if (type === 'stairs_down') return [{ label: 'DESCENDRE', fn: () => climbStairs(o, -1) }];
+  if (type === 'carcass') {
+    if (has('couteau') || has('hache')) return [{ label: 'DÉPECER', fn: () => busy('butcher', 3, () => butcher(o), { anim: 'act', sound: 'cloth' }) }];
+    return [{ label: 'DÉPECER', fn: () => say('Il faut un couteau ou une hache.') }];
+  }
+  if (type === 'gaspump') {
+    if (holding('jerrican')) return [{ label: 'REMPLIR', fn: () => busy('fuel', 2.5, () => {
+      const j = held(), k = Math.min(100 - (j.d || 0), o.fuel || 0);
+      if (!(o.fuel > 0)) { say('La cuve est vide.'); return; }
+      j.d = (j.d || 0) + k; o.fuel -= k; o.dirty = 1;
+      say(`Jerrican : ${Math.round(j.d)} %. Ça sent l'essence.`);
+    }, { anim: 'idle', sound: 'pour' }) }];
+    return [{ label: 'POMPE', fn: () => say('Avec un jerrican en main, on peut se servir.') }];
+  }
   if (type === 'bed') a.push({ label: 'DORMIR', fn: () => sleep() });
   if (type === 'sofa' || type === 'armchair' || type === 'bench') a.push({ label: 'S\'ASSEOIR', fn: () => { p.sitting = true; say('Vous vous asseyez un moment.'); } });
   if (type === 'sink' || type === 'bathsink') {
     const i = w.idx(o.x, o.y);
-    a.push(...waterActions('eau', false, () => { if (w.water[i] <= 0) { say('Plus une goutte. Les tuyaux sont vides.'); return false; } w.water[i]--; return true; }).slice(0, 1));
+    a.push(...waterActions('eau', false, () => { const L = w.lay(o.l || 0); if (L.water[i] <= 0) { say('Plus une goutte. Les tuyaux sont vides.'); return false; } w.setWater(o.x, o.y, o.l || 0, L.water[i] - 1); return true; }).slice(0, 1));
   }
   if (CONTAINERS[type] || type === 'bag') a.push({ label: type === 'bag' ? 'FOUILLER' : 'OUVRIR', sub: label, fn: () => openUI({ kind: 'box', obj: o }) });
   return a;
@@ -376,6 +406,7 @@ function actionsFor(t) {
 
 export function openUI(ui) {
   G.ui = ui;
+  if (ui.obj) ui.obj.dirty = 1; // son contenu sera sauvegardé
   G.p.sitting = false;
   if (ui.kind === 'box' || ui.kind === 'fire') sfx(ui.obj.type === 'fridge' ? 'fridge' : ui.obj.type === 'car' ? 'trunk' : 'open');
 }
@@ -389,6 +420,7 @@ function fish(t) {
 }
 function fell(o) {
   o.hits = (o.hits || 0) + 1;
+  o.dirty = 1;
   if (o.hits < 3) { say(['Encore quelques coups.', 'Le tronc craque.'][o.hits - 1]); return; }
   const w = G.world;
   w.removeObj(o);
@@ -400,7 +432,7 @@ function fell(o) {
 }
 function climb(t) {
   const w = G.world, p = G.p;
-  const m = w.mask(t.x, t.y), alongX = (m & 3) === 3;
+  const m = w.mask(t.x, t.y, t.l || 0), alongX = (m & 3) === 3;
   const cx = t.x + 0.5, cy = t.y + 0.5;
   let nx = cx, ny = cy;
   if (alongX) ny = p.y < cy ? cy + 0.62 : cy - 0.62;
@@ -418,6 +450,21 @@ function lightFire(o) {
   f.lit = true;
   sfx('ignite');
   say('Le feu prend. Ça réchauffe.');
+}
+function climbStairs(o, dir) {
+  const p = G.p;
+  busy('stairs', 0.6, () => {
+    p.l = o.to;
+    p.x = o.x + 0.5; p.y = o.y + 1.5;
+    sfx('stairs');
+    if (dir > 0 && p.l === 1) say('Vous montez. Le parquet craque.');
+  }, { anim: 'idle' });
+}
+function butcher(o) {
+  const deer = o.kind === 'deer';
+  G.world.removeObj(o);
+  give(makeStack('viande', deer ? 4 + (Math.random() * 2 | 0) : 1));
+  say(deer ? 'Un travail ingrat. De quoi manger plusieurs jours.' : 'Un peu de viande.');
 }
 function sleep() {
   const p = G.p;
@@ -443,24 +490,25 @@ export function findTarget() {
     if (!acts.length) return;
     t.acts = acts; best = t; bestS = s;
   };
+  const l = p.l || 0, L = w.lay(l);
   for (let y = py - 2; y <= py + 2; y++) for (let x = px - 2; x <= px + 2; x++) {
     if (!w.inb(x, y)) continue;
     const i = w.idx(x, y);
-    const k = w.wall[i];
-    if (k >= W.WINDOW && k <= W.OPEN) consider({ kind: 'wall', x, y }, x + 0.5, y + 0.5, 1.1, [[x, y]]);
-    const o = w.occ[i] >= 0 ? w.objs[w.occ[i]] : null;
+    const k = L.wall[i];
+    if (k >= W.WINDOW && k <= W.OPEN) consider({ kind: 'wall', x, y, l }, x + 0.5, y + 0.5, 1.1, [[x, y]]);
+    const o = L.occ[i] >= 0 ? w.objs[L.occ[i]] : null;
     if (o) {
       const solid = SOLID[o.type] || 0;
       // le point le plus proche de la boîte de l'objet
       const tx = Math.max(x + 0.5 - solid, Math.min(x + 0.5 + solid, p.x)), ty = Math.max(y + 0.5 - solid, Math.min(y + 0.5 + solid, p.y));
       consider({ kind: 'obj', obj: o, x, y }, tx, ty, 0.95, o.cells);
     }
-    if (isWater(w.tile[i])) {
+    if (!l && isWater(w.tile[i])) {
       const tx = Math.max(x, Math.min(x + 1, p.x)), ty = Math.max(y, Math.min(y + 1, p.y));
       consider({ kind: 'water', x, y }, tx, ty, 0.7, [[x, y]]);
     }
   }
-  for (const c of w.cars) {
+  for (const c of l ? [] : w.cars) {
     if (Math.abs(c.x - p.x) > 3.5 || Math.abs(c.y - p.y) > 3.5) continue;
     const [tx, ty] = nearestOnCar(c, p.x, p.y);
     consider({ kind: 'car', car: c, x: Math.floor(tx), y: Math.floor(ty) }, tx, ty, 0.95, []);
@@ -479,6 +527,7 @@ export function useItem(slot) {
     if (!s.n) p.inv[slot] = null;
     if (u.leaves) give(makeStack(u.leaves), true);
   };
+  if (def.gun) { reload(s); return; }
   if (u.needs && !u.needs.some(has)) { say('Il faut un ouvre-boîte ou un couteau.'); return; }
   if (u.text) { readText(s); return; }
   if (s.id === 'radio') { listen(s); return; }
@@ -533,7 +582,7 @@ function placeFire(slot) {
   const p = G.p, w = G.world;
   const [fx, fy] = facingVec(p.dir);
   const x = Math.floor(p.x + fx * 0.9), y = Math.floor(p.y + fy * 0.9);
-  if (w.roomAt(x, y) >= 0 || w.inside(p.x, p.y) >= 0) { say('Pas de feu à l\'intérieur.'); return; }
+  if (p.l || w.roomAt(x, y) >= 0 || w.inside(p.x, p.y) >= 0) { say('Pas de feu à l\'intérieur.'); return; }
   if (!w.canPlace('campfire', x, y, 0) || Math.abs(x + 0.5 - p.x) < 0.5 + R && Math.abs(y + 0.5 - p.y) < 0.5 + R) { say('Pas assez de place ici.'); return; }
   const s = p.inv[slot];
   s.n--; if (!s.n) p.inv[slot] = null;
@@ -571,6 +620,100 @@ function updateFires(dm) {
     } else f.prog = 0;
   }
 }
+
+// ---------------------------------------------------------------- armes à feu
+// direction de tir : la visée du joystick droit, sinon là où regarde le buste
+const aimVec = () => G.p.aimW || facingVec(G.p.dir);
+export function fire() {
+  const p = G.p, s = held(), g = s && ITEMS[s.id].gun;
+  if (!g || driving() || p.act || p.sleeping) return;
+  if (G.clock - (p.lastShot || 0) < g.delay) return;
+  p.lastShot = G.clock;
+  if (!(s.d > 0)) { sfx('dry'); say('Clic. Chargeur vide : RECHARGER.'); return; }
+  s.d--;
+  const [ax, ay] = aimVec(), base = Math.atan2(ay, ax);
+  const ox = p.x + ax * 0.35, oy = p.y + ay * 0.35;
+  for (let k = 0; k < g.pellets; k++) ray(ox, oy, base + (Math.random() - 0.5) * 2 * g.spread, g.range * (0.85 + Math.random() * 0.15), g.dmg);
+  G.flash = { t: 0.07, x: ox + ax * 0.3, y: oy + ay * 0.3, l: p.l || 0 };
+  G.shake = Math.max(G.shake || 0, s.id === 'pistolet' ? 1.5 : 3);
+  sfx(g.sound);
+  scare(p.x, p.y, 32);
+}
+function ray(x0, y0, ang, range, dmg) {
+  const w = G.world, l = G.p.l || 0, dx = Math.cos(ang), dy = Math.sin(ang), bx = [];
+  let x = x0, y = y0, hitWhat = null;
+  for (let d = 0; d < range; d += 0.1) {
+    x = x0 + dx * d; y = y0 + dy * d;
+    if (!l) {
+      const a = w.animals.find((q) => Math.hypot(q.x - x, q.y - y) < (q.type === 'deer' ? 0.6 : 0.32));
+      if (a) { hurtAnimal(a, dmg); hitWhat = 'flesh'; break; }
+      if (d > 0.4 && carHit(x, y, 0.02)) { hitWhat = 'metal'; break; }
+    }
+    const cx = Math.floor(x), cy = Math.floor(y);
+    bx.length = 0;
+    cellBoxes(cx, cy, bx, l);
+    if (bx.some((b) => x > b[0] && x < b[2] && y > b[1] && y < b[3])) {
+      if (w.Wk(cx, cy, l) === W.WINDOW) { w.setWall(cx, cy, l, W.BROKEN); sfx('glass'); }
+      hitWhat = 'wall';
+      break;
+    }
+  }
+  G.fx.push({ kind: 'tracer', x0, y0, x1: x, y1: y, l, t: 0.07 });
+  if (hitWhat) G.fx.push({ kind: hitWhat === 'flesh' ? 'blood' : 'spark', x, y, l, t: 0.25 });
+}
+function reload(s) {
+  const g = ITEMS[s.id].gun, need = g.cap - (s.d || 0), have = count(G.p.inv, g.ammo);
+  if (need <= 0) { say('Le chargeur est plein.'); return; }
+  if (!have) { say(`Plus de ${ITEMS[g.ammo].name.toLowerCase()}.`); return; }
+  sfx('reload');
+  busy('reload', g.reload, () => { const k = Math.min(need, count(G.p.inv, g.ammo)); take(g.ammo, k); s.d = (s.d || 0) + k; sfx('reload'); say(`${s.d}/${g.cap}`); }, { anim: 'idle' });
+}
+
+// ---------------------------------------------------------------- animaux
+// broutent, se promènent, fuient le joueur (plus loin s'il court ou conduit) et les coups de feu
+function scare(x, y, r) {
+  for (const a of G.world.animals) if (Math.hypot(a.x - x, a.y - y) < r) { a.state = 'flee'; a.t = 4 + Math.random() * 3; a.from = [x, y]; }
+}
+function hurtAnimal(a, dmg) {
+  a.hp -= dmg;
+  a.state = 'flee'; a.t = 6; a.from = [G.p.x, G.p.y];
+  if (a.hp > 0) { say('Touché. Il s\'enfuit en boitant.'); a.wounded = 1; return; }
+  const w = G.world, x = Math.floor(a.x), y = Math.floor(a.y);
+  w.animals.splice(w.animals.indexOf(a), 1);
+  const o = w.addObj({ type: 'carcass', kind: a.type, x, y, k: 0, v: 0 });
+  if (w.occ[w.idx(x, y)] !== o.id) { w.removeObj(o); drop(makeStack('viande', a.type === 'deer' ? 4 : 1)); }
+  say(a.type === 'deer' ? 'Le cerf s\'effondre.' : 'Le lapin ne bouge plus.');
+  sfx('thud');
+}
+function updateAnimals(dt) {
+  const p = G.p, w = G.world, car = driving();
+  for (const a of w.animals) {
+    const dx = a.x - p.x, dy = a.y - p.y, d = Math.hypot(dx, dy);
+    if (d > 48) continue; // figés au loin
+    const fearR = (a.type === 'deer' ? 7 : 3.5) * (p.running ? 1.6 : 1) * (car && Math.abs(car.speed) > 1 ? 2 : 1) * (p.l ? 0 : 1);
+    if (d < fearR && a.state !== 'flee') { a.state = 'flee'; a.t = 3 + Math.random() * 3; a.from = [p.x, p.y]; }
+    a.t -= dt;
+    let sp = 0;
+    if (a.state === 'graze') { if (a.t <= 0) { a.state = 'walk'; a.ang = Math.random() * Math.PI * 2; a.t = 2 + Math.random() * 4; } }
+    else if (a.state === 'walk') { sp = a.type === 'deer' ? 0.8 : 1.1; if (a.t <= 0) { a.state = 'graze'; a.t = 3 + Math.random() * 8; } }
+    else {
+      const f = a.from || [p.x, p.y];
+      a.ang = Math.atan2(a.y - f[1], a.x - f[0]) + Math.sin(G.clock * 2 + a.x) * 0.4;
+      sp = (a.type === 'deer' ? 5.4 : 4.4) * (a.wounded ? 0.6 : 1);
+      if (a.t <= 0 && d > fearR) { a.state = 'graze'; a.t = 2 + Math.random() * 4; }
+    }
+    a.moving = sp > 0;
+    if (!sp) continue;
+    const nx = a.x + Math.cos(a.ang) * sp * dt, ny = a.y + Math.sin(a.ang) * sp * dt;
+    const r = a.type === 'deer' ? 0.32 : 0.15;
+    if (hit(nx, ny, r, 0) || carHit(nx, ny, r) || w.inside(nx, ny, 0) >= 0) { a.ang += Math.PI / 2 + Math.random(); continue; }
+    a.x = nx; a.y = ny;
+    a.anim = (a.anim || 0) + dt * sp * (a.type === 'deer' ? 0.6 : 1.4);
+  }
+}
+
+// ---------------------------------------------------------------- électricité
+export const powered = () => G.time < (G.powerOff || 0);
 
 // ---------------------------------------------------------------- boucle
 let saveT = 0, sayT = 0;
@@ -630,7 +773,10 @@ export function update(dt, input) {
     // un cycle d'animation = deux pas = WALK_CYCLE (ou RUN_CYCLE) cases : les pieds ne glissent pas
     const k = 1 / (p.running ? RUN_CYCLE : WALK_CYCLE);
     p.anim += dt * speed * k;
-    if (Math.floor(p.anim * 2) !== Math.floor((p.anim - dt * speed * k) * 2)) sfx('step', w.T(Math.floor(p.x), Math.floor(p.y)));
+    if (Math.floor(p.anim * 2) !== Math.floor((p.anim - dt * speed * k) * 2)) {
+      const cx = Math.floor(p.x), cy = Math.floor(p.y);
+      sfx('step', { t: w.T(cx, cy, p.l || 0), leaves: !p.l && w.litter[w.idx(cx, cy)] > 0, run: p.running, foot: (p.foot = !p.foot) });
+    }
   } else {
     p.anim += dt;
     // à l'arrêt, les pieds pivotent quand le buste arrive en butée
@@ -647,6 +793,12 @@ export function update(dt, input) {
   if (off > 4) off -= 8;
   p.twist = Math.max(-2, Math.min(2, off));
   p.aiming = aiming;
+  if (aiming) {
+    const wx = input.ax / 32 + input.ay / 16, wy = input.ay / 16 - input.ax / 32, l2 = Math.hypot(wx, wy) || 1;
+    // la visée suit le buste (limité à 90° des jambes)
+    const [fx, fy] = facingVec(p.dir), aw = [wx / l2, wy / l2];
+    p.aimW = aw[0] * fx + aw[1] * fy > 0.3 ? aw : [fx, fy];
+  } else p.aimW = null;
 
   // action en cours
   if (p.act) {
@@ -717,6 +869,14 @@ export function update(dt, input) {
   }
 
   updateFires(dm);
+  updateAnimals(dt);
+  for (const f of G.fx) f.t -= dt;
+  G.fx = G.fx.filter((f) => f.t > 0);
+  if (G.flash) { G.flash.t -= dt; if (G.flash.t <= 0) G.flash = null; }
+  // la nuit où le courant saute
+  const pw = powered();
+  if (G.wasPowered && !pw) { say('Un claquement sourd. Les lumières de la ville s\'éteignent, pour de bon.', 6); sfx('powerdown'); }
+  G.wasPowered = pw;
   G.swayT += dt * (1 + Math.min(1.5, wt.rain * 1.5) * 1.2);
 
   if (car) { /* la cible est la sortie */ }

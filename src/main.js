@@ -19,6 +19,7 @@ window.__G = G; // pour déboguer depuis la console
 setTimeout(() => {
   bakeBase();
   try { G.muted = localStorage.getItem('thelast-muted') === '1'; } catch (e) { /* rien */ }
+  try { Object.assign(G.settings, JSON.parse(localStorage.getItem('thelast-settings') || '{}')); } catch (e) { /* rien */ }
   setMuted(G.muted);
   saved = hasSave() && load();
   if (saved) G.mode = 'title';

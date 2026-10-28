@@ -5,6 +5,7 @@ import { treeFrames, bushFrames, rockSprite, grassFrames, reedFrames, shadowBuff
 import { wallSprite, fenceSprite, roofSprite } from './sprites/build.js';
 import { propSprite } from './sprites/props.js';
 import { carSprite, CAR_DIRS, WHEEL_FRAMES } from './sprites/cars.js';
+import { bakeAnimals, carcassSprite } from './sprites/animals.js';
 import { bakePlayer } from './sprites/player.js';
 import { iconBuffer, ICONS } from './sprites/icons.js';
 import { makeBuffer } from './raster.js';
@@ -28,7 +29,11 @@ export function bakeBase() {
   const p = bakePlayer();
   // [jambes][torsion][image]
   const bake3 = (A) => A.map((d) => d.map((t) => t.map(toSprite)));
-  S.player = { walk: bake3(p.walk), idle: bake3(p.idle), act: bake3(p.act), run: p.run.map((d) => d.map(toSprite)) };
+  S.player = { walk: bake3(p.walk), idle: bake3(p.idle), act: bake3(p.act), run: p.run.map((d) => d.map(toSprite)),
+    aim: p.aim.map((d) => d.map(toSprite)), aimWalk: bake3(p.aimWalk) };
+  const A = bakeAnimals();
+  S.animals = {};
+  for (const k in A) { S.animals[k] = {}; for (const a in A[k]) S.animals[k][a] = A[k][a].map((d) => d.map(toSprite)); }
   for (const id of Object.keys(ICONS)) S.icons[id] = toSprite(iconBuffer(id));
   S.shadows.small = toSprite(shadowBuffer(6, 3));
   S.shadows.tree = toSprite(shadowBuffer(11, 5));
@@ -42,8 +47,13 @@ export const rock = (v) => memo(`r${v}`, () => toSprite(rockSprite(v)));
 export const grass = (v, f) => memo(`g${v}`, () => grassFrames(v).map(toSprite))[f % 3];
 export const reed = (v, f) => memo(`d${v}`, () => reedFrames(v).map(toSprite))[f % 3];
 export const prop = (name, k, v) => memo(`p${name}${k}${v}`, () => toSprite(propSprite(name, k, v).img));
-export const wall = (mask, kind, style, intU, intV, cut) =>
-  memo(`w${mask}${kind}${style.ext}${style.int}${intU}${intV}${cut}`, () => toSprite(wallSprite(mask, kind, style, intU, intV, cut).img));
+// un mur : son image et, s'il a des vitres, la couche qui s'allume la nuit
+export const wall = (mask, kind, style, intU, intV, cut, upper = 0) =>
+  memo(`w${mask}${kind}${style.ext}_${style.int}${intU}${intV}${cut}${upper}`, () => {
+    const r = wallSprite(mask, kind, style, intU, intV, cut, upper);
+    return { img: toSprite(r.img), glow: r.glow ? toSprite(r.glow) : null };
+  });
+export const carcass = (kind) => memo(`k${kind}`, () => toSprite(carcassSprite(kind)));
 export const car = (v, i, f = 0, st = 1) => memo(`c${v}_${i}_${f}_${st}`, () => toSprite(carSprite(v, i, f, st).img));
 // cuit d'avance une image manquante par appel (orientation × rotation × braquage) pour la voiture
 // conduite, en commençant par les orientations proches de la sienne

@@ -18,6 +18,12 @@ export const GROUND = {
   carpet: ramp('#3e2a30', '#5a3a40', '#73504f', '#8c6862'),
   sand: ramp('#a8925c', '#bfa86c', '#d1bc80', '#e2d09a'),
   water: ramp('#1b3e52', '#255268', '#356c80', '#78a8b6'),
+  field: ramp('#3e2a1a', '#563a24', '#6e4c30', '#86603e'), // terre labourée
+  roof: ramp('#2a2a2c', '#38383a', '#484746', '#5c5a56'), // toit-terrasse gravillonné
+  cobble: ramp('#5a554e', '#787166', '#958c7e', '#b4aa98'),
+  gravel: ramp('#58544e', '#706a60', '#888276', '#a29a8c'),
+  office: ramp('#2c323e', '#3a4252', '#4a5466', '#5e6a7e'), // moquette de bureau
+  concrete: ramp('#4a4a48', '#5e5e5a', '#72716c', '#888680'),
   deep: ramp('#142f42', '#1b3d54', '#28526a', '#5c8ea2'),
 };
 export const ROAD_PAINT = ramp('#6e6338', '#988848', '#b9a658', '#cfbd70'); // jaune passé
@@ -49,7 +55,18 @@ export const SIDING = [
   ramp('#36422f', '#56664c', '#76896a', '#9cae8e'), // sauge
   ramp('#55595f', '#83898f', '#aeb3b6', '#d4d6d4'), // blanc sale
   ramp('#4a2420', '#74382e', '#985044', '#b87262'), // rouge poussiéreux
+  ramp('#5a2418', '#84392a', '#a8513a', '#c46e52'), // 5 brique
+  ramp('#4c4c4a', '#6c6b66', '#8c8a83', '#aeaba2'), // 6 béton
+  ramp('#1c2432', '#2a3850', '#3c506c', '#6884a6'), // 7 mur-rideau vitré
+  ramp('#4a1410', '#7a2318', '#a3362a', '#c45a44'), // 8 planches de grange
+  ramp('#363a40', '#50555d', '#6e747e', '#90979f'), // 9 tôle ondulée
 ];
+export const CROPS = ramp('#4e4a22', '#6e6a30', '#8e863e', '#ada252'); // tiges sèches
+export const DEER = ramp('#36200e', '#5e3c1e', '#86582e', '#a87a48');
+export const RABBIT = ramp('#3a3430', '#5e554c', '#837868', '#a89a86');
+export const ANTLER = ramp('#5a4a36', '#86745a', '#ad9a7c', '#d2c2a2');
+export const STRAW = ramp('#6e5420', '#a3812f', '#cfa94a', '#ead37a');
+export const CARDBOARD = ramp('#5a4026', '#7e5c38', '#9e7a4c', '#bc9a66');
 export const WALLPAPER = [
   ramp('#5e4c3c', '#86705a', '#a88f74', '#c4ad8e'),
   ramp('#4a5442', '#6a765c', '#8a9678', '#aab494'),
@@ -105,3 +122,4 @@ export const PACK = ramp('#2a2018', '#43342a', '#5e4a3a', '#7a644e');
 export const FIRE = ['#c8281e', '#ff5a2a', '#ff9a3c', '#ffd23f', '#fff3b0'].map(hex);
 export const SMOKE = ['#34343a', '#4a4a50', '#62626a'].map(hex);
 export const SHADOW = [10, 20, 18];
+export const BLOOD = ramp('#3e060c', '#6e0e18', '#a01824', '#d02c36');

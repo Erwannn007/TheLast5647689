@@ -57,7 +57,7 @@ for (const o of w.objs) {
   G.p.x = o.x + 0.5; G.p.y = o.y + 1.45;
   if (w.walkable(o.x, o.y + 1)) { const t = game.findTarget(); if (t && t.kind === 'obj' && t.obj === o) opened++; }
 }
-ok(opened > 20, `cibles de conteneurs trouvées : ${opened}`);
+ok(opened > 100, `cibles de conteneurs trouvées : ${opened}`);
 // sauvegarde / chargement
 G.mode = 'play'; game.save();
 const before = JSON.stringify(G.p.inv);
@@ -74,17 +74,26 @@ r = at(0, 0, 0, -1); // à l'arrêt, vise derrière : les pieds pivotent
 ok(Math.abs(r.twist) <= 2 && r.dir === 4, `à l'arrêt, les pieds suivent (torsion ${r.twist})`);
 r = at(0, 1, 0, 0);
 ok(r.twist === 0 && r.legs === 0, 'sans visée, le buste revient dans l\'axe');
+
+// se placer contre une voiture, du côté où elle devient la cible
+function besideCar(c) {
+  const B = game.carBox(c);
+  for (const [a, b] of [[0, B.hw + 0.35], [0, -(B.hw + 0.35)], [B.hl * 0.5, B.hw + 0.35], [-B.hl * 0.5, -(B.hw + 0.35)], [B.hl + 0.4, 0], [-(B.hl + 0.4), 0]]) {
+    G.p.x = c.x + a * B.ux - b * B.uy; G.p.y = c.y + a * B.uy + b * B.ux; G.p.l = 0;
+    const t = game.findTarget();
+    if (t && t.kind === 'car' && t.car === c) return t;
+  }
+  return null;
+}
 // conduite
 {
   game.newGame(); G.ui = null;
   const w = G.world;
   // une voiture qui a de la place devant elle
   const free = (q) => [1, 2, 3, 4].every((d) => !game.carBlocked(q, q.x + Math.cos(q.ang) * d, q.y + Math.sin(q.ang) * d, q.ang));
-  const c = w.cars.find(free) || w.cars[0];
+  const c = w.cars.find((q) => free(q) && besideCar(q)) || w.cars[0];
   c.fuel = 50;
-  const B = game.carBox(c);
-  G.p.x = c.x; G.p.y = c.y + B.hw + 0.4;
-  const t = game.findTarget();
+  const t = besideCar(c);
   ok(t && t.kind === 'car' && t.acts.some((a) => a.label === 'CONDUIRE'), 'une voiture se conduit');
   t.acts.find((a) => a.label === 'CONDUIRE').fn();
   ok(game.driving() === c, 'au volant');
@@ -127,23 +136,109 @@ ok(r.twist === 0 && r.legs === 0, 'sans visée, le buste revient dans l\'axe');
 {
   game.newGame(); G.ui = null;
   const free = (q) => [1, 2, 3, 4].every((d) => !game.carBlocked(q, q.x + Math.cos(q.ang) * d, q.y + Math.sin(q.ang) * d, q.ang));
-  const c = G.world.cars.find(free) || G.world.cars[0];
-  c.fuel = 100; G.p.x = c.x; G.p.y = c.y + 1.3;
-  game.findTarget().acts.find((a) => a.label === 'CONDUIRE').fn();
+  const c = G.world.cars.find((q) => free(q) && besideCar(q)) || G.world.cars[0];
+  c.fuel = 100;
+  besideCar(c).acts.find((a) => a.label === 'CONDUIRE').fn();
   const a0 = c.ang;
+  G.settings.drive = 'wheel';
   for (let i = 0; i < 40; i++) game.update(1 / 60, { x: 0, y: 0, mag: 0, gas: true });
   // volant tourné à fond vers la gauche
   for (let i = 0; i < 30; i++) game.update(1 / 60, { x: 0, y: 0, mag: 0, gas: true, wheel: -1, wheelHeld: true });
-  ok(Math.abs(c.ang - a0) > 0.15 || Math.abs(c.speed) < 0.5, `la voiture braque (${(c.ang - a0).toFixed(2)} rad)`);
+  ok(c.ang - a0 < -0.15 || Math.abs(c.speed) < 0.5, `volant à gauche : la voiture tourne à gauche (${(c.ang - a0).toFixed(2)} rad)`);
+  // au joystick : le nez va vers le pouce
+  G.settings.drive = 'stick';
+  const target = c.ang + Math.PI / 2, tx = Math.cos(target), ty = Math.sin(target);
+  for (let i = 0; i < 90; i++) game.update(1 / 60, { x: tx - ty, y: (tx + ty) / 2, mag: 1, gas: true });
+  ok(Math.abs(Math.atan2(Math.sin(c.ang - target), Math.cos(c.ang - target))) < 1.2 || Math.abs(c.speed) < 0.5, 'joystick : le nez suit le pouce');
 }
 // sprint
 {
   game.newGame(); G.ui = null;
   const run = (sprint) => { const x0 = G.p.x, y0 = G.p.y; for (let i = 0; i < 20; i++) game.update(1 / 60, { x: 1, y: 0.5, mag: 1, sprint }); return Math.hypot(G.p.x - x0, G.p.y - y0); };
-  G.p.x = 30.5; G.p.y = 48.5; // sur la grand-route
-  const walk = run(false); G.p.x = 30.5; G.p.y = 48.5;
+  // un endroit dégagé sur 6 cases vers +x
+  let sx = 0, sy = 0;
+  for (let y = 20; y < 230 && !sx; y += 3) for (let x = 20; x < 230; x += 3) {
+    if ([0, 1, 2, 3, 4, 5].every((d) => G.world.walkable(x + d, y) && G.world.walkable(x + d, y - 1) && G.world.walkable(x + d, y + 1) && !game.carHit(x + d + 0.5, y + 0.5, 1))) { sx = x + 0.5; sy = y + 0.5; break; }
+  }
+  G.p.x = sx; G.p.y = sy;
+  const walk = run(false); G.p.x = sx; G.p.y = sy;
   const e0 = G.p.energy, sprint = run(true);
   ok(sprint > walk * 1.5 && G.p.energy < e0, `courir va plus vite (${walk.toFixed(2)} -> ${sprint.toFixed(2)}) et fatigue`);
-  G.p.energy = 5; G.p.x = 30.5; G.p.y = 48.5;
+  G.p.energy = 5; G.p.x = sx; G.p.y = sy;
   ok(run(true) < walk * 1.3, 'épuisé, on ne court plus');
+}
+
+// étages : monter l'escalier d'une tour, marcher là-haut, redescendre
+{
+  game.newGame(); G.ui = null;
+  const w = G.world, b = w.blds.find((q) => q.floors >= 3);
+  const st = w.objs.find((o) => o && o.type === 'stairs' && o.l === 0 && o.x >= b.x0 && o.x <= b.x1 && o.y >= b.y0 && o.y <= b.y1);
+  const { dirFromWorld } = await import('../src/sprites/player.js');
+  G.p.x = st.x + 0.5; G.p.y = st.y + 1.45; G.p.l = 0; G.p.dir = dirFromWorld(0, -1); // face aux marches
+  let t = game.findTarget();
+  ok(t && t.obj === st && t.acts[0].label === 'MONTER', 'escalier : MONTER');
+  t.acts[0].fn();
+  for (let i = 0; i < 60; i++) game.update(1 / 60, idle);
+  ok(G.p.l === 1 && w.inside(G.p.x, G.p.y, 1) === b.id, 'arrivé au premier étage');
+  // promenade à l'étage : on ne traverse rien et on ne tombe pas dans le vide
+  let bad = 0;
+  for (let i = 0; i < 600; i++) {
+    const a = (i / 40) * 2.1;
+    game.update(1 / 30, { x: Math.cos(a), y: Math.sin(a), mag: 1 });
+    if (!w.lay(1).tile[w.idx(Math.floor(G.p.x), Math.floor(G.p.y))]) bad++;
+  }
+  ok(bad === 0, `pas de chute dans le vide (${bad})`);
+  const down = w.objs.find((o) => o && o.type === 'stairs_down' && o.l === 1 && o.x >= b.x0 && o.x <= b.x1 && o.y >= b.y0 && o.y <= b.y1);
+  G.p.x = down.x + 0.5; G.p.y = down.y + 1.45; G.p.dir = dirFromWorld(0, -1);
+  t = game.findTarget();
+  ok(t && t.obj === down, 'trémie : DESCENDRE');
+  t.acts[0].fn();
+  for (let i = 0; i < 60; i++) game.update(1 / 60, idle);
+  ok(G.p.l === 0, 'redescendu');
+}
+// armes : tirer, recharger, chasser
+{
+  game.newGame(); G.ui = null;
+  const w = G.world;
+  G.p.inv[4] = { id: 'carabine', n: 1, d: 2 }; G.p.inv[5] = { id: 'balles_308', n: 10 }; G.p.sel = 4;
+  // un cerf, et à 6 cases de lui une ligne de tir dégagée (on essaie plusieurs cerfs et angles)
+  let ok2 = false, deer = null;
+  for (const cand of w.animals.filter((a) => a.type === 'deer')) for (const ang of [0, 1, 2, 3, 4, 5]) {
+    if (ok2) break;
+    deer = cand; deer.state = 'graze'; deer.t = 99;
+    G.p.x = deer.x - Math.cos(ang) * 6; G.p.y = deer.y - Math.sin(ang) * 6; G.p.l = 0;
+    const aim = [Math.cos(ang), Math.sin(ang)];
+    let clearLine = true;
+    for (let d = 0.5; d < 5.5; d += 0.2) { const bx = []; game.cellBoxes(Math.floor(G.p.x + aim[0] * d), Math.floor(G.p.y + aim[1] * d), bx, 0); if (bx.some((q) => G.p.x + aim[0] * d > q[0] && G.p.x + aim[0] * d < q[2] && G.p.y + aim[1] * d > q[1] && G.p.y + aim[1] * d < q[3]) || game.carHit(G.p.x + aim[0] * d, G.p.y + aim[1] * d, 0.05) || w.animals.some((q) => q !== deer && Math.hypot(q.x - G.p.x - aim[0] * d, q.y - G.p.y - aim[1] * d) < 0.7)) clearLine = false; }
+    if (!clearLine || !w.walkable(Math.floor(G.p.x), Math.floor(G.p.y))) continue;
+    G.p.aimW = aim; G.clock += 5;
+    const hp = deer.hp;
+    game.fire();
+    ok2 = deer.hp < hp || !w.animals.includes(deer);
+    if (ok2) break;
+  }
+  ok(ok2, 'une balle touche le cerf');
+  ok(G.p.inv[4].d === 1, 'une balle de moins dans le chargeur');
+  game.useItem(4);
+  for (let i = 0; i < 200; i++) game.update(1 / 60, idle);
+  ok(G.p.inv[4].d === 5 && G.p.inv[5].n === 6, `rechargé : ${G.p.inv[4].d}/5, reste ${G.p.inv[5] && G.p.inv[5].n}`);
+}
+// sauvegarde par différences : une porte ouverte, un objet pris, rechargés à l'identique
+{
+  game.newGame(); G.ui = null;
+  const w = G.world;
+  const fridge = w.objs.find((o) => o && o.type === 'fridge');
+  fridge.inv[0] = { id: 'pomme', n: 3 }; fridge.dirty = 1;
+  const door = (() => { for (let i = 0; i < w.wall.length; i++) if (w.wall[i] === 4) return i; })();
+  w.setWall(door % 256, Math.floor(door / 256), 0, 5);
+  const tree = w.objs.find((o) => o && o.type === 'tree');
+  w.removeObj(tree);
+  G.mode = 'play'; game.save();
+  const size = localStorage.getItem('thelast-save-v4').length;
+  game.load();
+  const w2 = G.world;
+  ok(w2.objs[fridge.id].inv[0] && w2.objs[fridge.id].inv[0].id === 'pomme', 'contenu du frigo gardé');
+  ok(w2.wall[door] === 5, 'porte restée ouverte');
+  ok(!w2.objs[tree.id], 'arbre abattu toujours absent');
+  ok(size < 400000, `sauvegarde légère : ${(size / 1024) | 0} Ko`);
 }

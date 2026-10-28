@@ -4,7 +4,7 @@ import { hash } from '../raster.js';
 import { box, cylinder, ellipsoid, capsule, rotPrims, renderSolids } from '../solids.js';
 import {
   WOOD, DARKWOOD, ENAMEL, METAL, STEEL, GLASS, CREAM, FABRIC, TIRE, PAINTWOOD,
-  ROCK, BARK, RUST, CONCRETE, TRIM, BRICK,
+  ROCK, BARK, RUST, CONCRETE, TRIM, BRICK, STRAW, CARDBOARD, BUSH, INTERIOR,
 } from '../palette.js';
 
 const clamp3 = (s) => (s < 0 ? 0 : s > 3 ? 3 : s);
@@ -246,6 +246,121 @@ const MODELS = {
   hydrant: () => [sm(cylinder(0, 0, 2, 0, 8, FABRIC.red)), sm(ellipsoid(0, 0, 8, 2, 2, 1.8, FABRIC.red, null, 8)), sm(capsule([0, -3, 5], [0, 3, 5], 0.9, FABRIC.red))],
 };
 const INT0 = [24, 16, 12];
+const GREY = ENAMEL, OFFICE = [[44, 48, 56], [70, 76, 88], [98, 106, 120], [130, 138, 152]];
+const LOCKER = [[30, 44, 40], [46, 68, 60], [66, 94, 84], [92, 124, 112]];
+
+Object.assign(MODELS, {
+  // bureau avec écran, clavier et caisson
+  desk: (v) => [
+    box(-8, 8, -5.5, 5.5, 11, 12.4, v % 2 ? WOOD : OFFICE, plain),
+    box(3, 7.6, -5, 5, 0, 11, v % 2 ? WOOD : OFFICE, (q) => (front(q) && ((q.z + 64) % 3.7) < 0.5 ? 0 : q.shade)),
+    box(-7.6, -6.6, -5, 5, 0, 11, METAL), box(-7.6, -6.6, -5, -4, 0, 11, METAL),
+    sm(box(-4.5, 1.5, -1.5, -0.7, 12.4, 19.5, METAL, (q) => (front(q) && Math.abs(q.u + 1.5) < 2.5 && q.z > 13.2 && q.z < 18.8 ? GLASS[q.z > 17 ? 1 : 0] : q.shade))),
+    sm(box(-2, -1, -2.2, -1.5, 12.4, 13.5, METAL)),
+    sm(box(-4.5, 1.5, 1, 3.5, 12.4, 13, ENAMEL, plain)),
+  ],
+  ochair: () => [
+    sm(box(-3.6, 3.6, -3.6, 3.6, 7, 8.6, FABRIC.blue, plain)),
+    sm(box(-3.4, 3.4, -4.2, -3.2, 8.6, 17, FABRIC.blue, plain)),
+    cylinder(0, 0, 0.6, 2, 7, METAL),
+    capsule([-3.5, 0, 1], [3.5, 0, 1], 0.6, METAL), capsule([0, -3.5, 1], [0, 3.5, 1], 0.6, METAL),
+  ],
+  filing: () => [
+    sm(box(-4.5, 4.5, -5, 5, 0, 22, GREY, (q) => {
+      if (!front(q)) return plain(q);
+      const zz = (q.z + 64) % 5.4;
+      if (zz < 0.5) return 0;
+      if (Math.abs(q.u) < 1.5 && Math.abs(zz - 3.6) < 0.6) return METAL[2];
+      return q.shade;
+    })),
+  ],
+  vending: (v) => [
+    sm(box(-7, 7, -6, 6, 0, 30, v % 2 ? FABRIC.red : FABRIC.blue, (q) => {
+      if (front(q) && q.u < 3 && q.u > -6 && q.z > 8 && q.z < 27) {
+        // vitrine : rangées de produits colorés
+        const row = Math.floor((q.z - 8) / 4.6), col = Math.floor((q.u + 6) / 2.2);
+        if (((q.z - 8) % 4.6) < 0.8) return METAL[1];
+        return [FABRIC.red, CREAM, FABRIC.green, FABRIC.beige, FABRIC.blue][(row * 3 + col) % 5][q.z % 4.6 > 2.8 ? 3 : 2];
+      }
+      if (front(q) && q.u > 3.8 && q.u < 5.8 && q.z > 16 && q.z < 22) return METAL[0];
+      return plain(q);
+    })),
+  ],
+  locker: () => [
+    sm(box(-7, 7, -5, 5, 0, 30, LOCKER, (q) => {
+      if (!front(q)) return plain(q);
+      if (Math.abs(q.u) < 0.4 || q.z < 1) return 0;
+      if (q.z > 24 && q.z < 27 && ((q.z * 3) | 0) % 2) return 0; // aérations
+      if (Math.abs(Math.abs(q.u) - 1.5) < 0.5 && Math.abs(q.z - 15) < 1.5) return STEEL[2];
+      return q.shade;
+    })),
+  ],
+  gunrack: () => {
+    const p = [box(-8, 8, -6, -4.6, 2, 26, DARKWOOD, plain), box(-8, 8, -6, 0, 2, 3.5, DARKWOOD, plain)];
+    for (const u of [-5, -1.5, 2, 5.5]) {
+      p.push(capsule([u, -3.8, 4], [u, -4.2, 15], 1, WOOD)); // crosse
+      p.push(capsule([u, -4.2, 15], [u, -4.4, 25], 0.55, METAL)); // canon
+    }
+    return p;
+  },
+  rack: (v) => {
+    const p = [];
+    for (const [u, w] of [[-8, -5.5], [7, -5.5], [-8, 4.5], [7, 4.5]]) p.push(box(u, u + 1, w, w + 1, 0, 34, FABRIC.blue));
+    for (const z of [0.5, 11, 22, 33]) {
+      p.push(box(-8, 8, -5.5, 5.5, z, z + 1, FABRIC.red, plain));
+      if (z > 30) break;
+      for (let i = 0; i < 3; i++) {
+        const h = hash(i, z, v + 5);
+        if (h < 0.25) continue;
+        const u0 = -7.5 + i * 5;
+        p.push(box(u0, u0 + 4.6, -4.5, 4.5, z + 1, z + 1 + 5 + h * 4, CARDBOARD, (q) => (q.face === 't' && Math.abs(q.v) < 0.4 ? 1 : front(q) && Math.abs(q.z - z - 4) < 0.6 ? 1 : plain(q))));
+      }
+    }
+    return p;
+  },
+  haybale: () => [capsule([-6, 0, 5], [6, 0, 5], 5, STRAW, ), box(-7, 7, -1, 1, 0, 0.5, STRAW)].map((P, i) => (i ? P : { ...P, mat: (q) => (Math.abs(((q.u + 64) % 4) - 2) < 0.4 ? 1 : hash(q.x, q.y, 3) < 0.2 ? Math.max(0, q.shade - 1) : q.shade) })),
+  gaspump: (v) => [
+    box(-4, 4, -5, 5, 0, 1.5, CONCRETE, plain),
+    sm(box(-3, 3, -3.5, 3.5, 1.5, 22, v % 2 ? FABRIC.red : CREAM, (q) => {
+      if (front(q) && Math.abs(q.u) < 2 && q.z > 15 && q.z < 19.5) return GLASS[q.z > 17.5 ? 1 : 0];
+      if (front(q) && Math.abs(q.u) < 2.4 && q.z > 9 && q.z < 13) return METAL[1];
+      return plain(q);
+    })),
+    capsule([3, 2, 12], [5, 4, 4], 0.45, TIRE),
+  ],
+  // escalier : 7 marches qui montent vers l'arrière (-v), le palier arrive à l'étage
+  stairs: () => {
+    const p = [];
+    for (let i = 0; i < 7; i++) p.push(box(-6, 6, -8, 8 - i * 2.28, 0, (i + 1) * 4, WOOD, (q) => (q.face === 't' ? 3 : front(q) && q.z % 4 > 3.2 ? 1 : q.shade)));
+    p.push(capsule([6.5, 8, 6], [6.5, -8, 30], 0.5, METAL), box(6, 7, -8, -7, 0, 30, METAL), box(6, 7, 7, 8, 0, 6, METAL));
+    return p;
+  },
+  // trémie de l'escalier à l'étage : un trou sombre bordé d'une rambarde
+  stairs_down: () => [
+    box(-6, 6, -8, 8, 0, 0.6, INTERIOR, () => INTERIOR[0]),
+    capsule([-6.5, -7.5, 9], [-6.5, 7.5, 9], 0.5, METAL), capsule([6.5, -7.5, 9], [6.5, 7.5, 9], 0.5, METAL),
+    capsule([-6.5, -7.5, 9], [6.5, -7.5, 9], 0.5, METAL),
+    box(-7, -6, -8, -7, 0, 9, METAL), box(6, 7, -8, -7, 0, 9, METAL), box(-7, -6, 7, 8, 0, 9, METAL), box(6, 7, 7, 8, 0, 9, METAL),
+  ],
+  hvac: () => [
+    sm(box(-6.5, 6.5, -5.5, 5.5, 0, 9, GREY, (q) => {
+      if (q.face === 't') { const d = Math.hypot(q.u, q.v); return d < 4 ? (((d * 2) | 0) % 2 ? METAL[1] : METAL[2]) : 3; }
+      return ((q.u + q.v + 64) % 1.5) < 0.5 ? Math.max(0, q.shade - 1) : q.shade;
+    })),
+  ],
+  planter: () => [
+    box(-6, 6, -6, 6, 0, 5, CONCRETE, plain),
+    ellipsoid(0, 0, 8, 5.5, 5.5, 4.5, BUSH, (q) => (hash(q.x, q.y, 2) < 0.2 ? Math.max(0, q.shade - 1) : q.shade), 5),
+  ],
+  medcab: () => [
+    sm(box(-7, 7, -5, 5, 0, 28, ENAMEL, (q) => {
+      if (front(q) && Math.abs(q.z - 21) < 3 && Math.abs(q.u) < 1) return FABRIC.red[2];
+      if (front(q) && Math.abs(q.z - 21) < 1 && Math.abs(q.u) < 3) return FABRIC.red[2];
+      if (front(q) && (Math.abs(q.u) < 0.4 || Math.abs(q.z - 14) < 0.4)) return 1;
+      return plain(q);
+    })),
+  ],
+});
 
 function counterPrims(v, sink) {
   const p = [

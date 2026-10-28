@@ -18,6 +18,10 @@ export const G = {
   swayT: 0,
   clock: 0,
   muted: false,
+  fx: [], // traçantes, impacts
+  flash: null, // éclair de bouche
+  settings: { drive: 'stick' },
+  powerOff: 0,
 };
 
 export function newPlayer(x, y) {
@@ -26,7 +30,7 @@ export function newPlayer(x, y) {
   inv[1] = makeStack('chocolat', 2);
   inv[2] = { id: 'note', n: 1, d: -1 };
   return {
-    x, y, dir: 0, legs: 0, twist: 0, legsA: 0, back: false, aiming: false, driving: -1, moving: false, anim: 0, act: null,
+    x, y, dir: 0, legs: 0, twist: 0, legsA: 0, back: false, aiming: false, driving: -1, l: 0, moving: false, anim: 0, act: null,
     health: 100, hunger: 78, thirst: 70, energy: 85, moral: 60,
     bleeding: false, sick: 0, sleeping: false, sitting: false,
     inv, sel: 0, craft: [null, null, null, null], cursor: null,

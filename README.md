@@ -1,8 +1,21 @@
 # The Last
 
-Un jeu de survie personnel, pour téléphone, dans le navigateur.
-Une petite ville de fin d'été que tout le monde a quittée. Pas de zombies : juste le silence,
-la faim, la soif, la fatigue, le moral… et ce que les gens ont laissé derrière eux.
+Un jeu de survie personnel, pour téléphone, dans le navigateur, dans l'esprit de Project Zomboid
+(sans zombies pour l'instant). Une région entière que tout le monde a quittée : un centre-ville
+moderne à tours, une banlieue, une zone industrielle, des fermes, des forêts, des lacs.
+Juste le silence, la faim, la soif, la fatigue, le moral… et ce que les gens ont laissé derrière eux.
+
+## Le monde
+
+- Carte de 256 × 256 cases générée d'une graine : bureaux, immeubles, commissariat, hôpital,
+  armurerie, pharmacie, supermarché, quincaillerie, restaurant, station-service, entrepôts,
+  maisons, fermes et granges, cabanes de chasse, champs, lacs, files de voitures abandonnées.
+- Bâtiments à étages : escaliers (MONTER / DESCENDRE), toits-terrasses, murs coupés autour de soi.
+- Électricité : pendant les premiers jours, lampadaires, fenêtres et plafonniers s'allument la nuit,
+  puis le courant saute pour de bon.
+- Animaux sauvages (cerfs, lapins) qui fuient le joueur et les coups de feu ; on les chasse,
+  on les dépèce (couteau ou hache) et on cuit la viande au feu.
+- Bouton carte (sous le menu) : la carte entière, à faire glisser.
 
 ## Jouer
 
@@ -16,11 +29,13 @@ la faim, la soif, la fatigue, le moral… et ce que les gens ont laissé derriè
   - glisser un objet sur une case : le déplacer (les mêmes objets s'empilent, sinon on échange) ;
   - toucher un objet : infobulle avec ses effets et les actions (utiliser, diviser, ranger, jeter) ;
   - toucher le résultat de fabrication : fabriquer.
+- **Armes à feu** (pistolet, fusil à pompe, carabine) : tenir l'arme, viser au joystick droit et
+  le relâcher pour tirer, ou bouton TIRER ; le bouton jaune RECHARGE avec les munitions du sac.
 - **COURIR** (bouton violet, à garder enfoncé) : sprint, plus rapide mais fatigant ; impossible
   en visant ou à bout de forces.
 - **Voitures** : CONDUIRE à côté d'une voiture. GAZ et FREIN à droite (à garder enfoncés ; FREIN à
-  l'arrêt = marche arrière), un volant à gauche : on l'attrape et on le tourne, il revient seul
-  au centre. Les roues avant braquent avec lui. Beaucoup sont à
+  l'arrêt = marche arrière). Pour braquer, au choix dans le menu : le joystick (le nez de la
+  voiture suit le pouce, par défaut) ou un volant à tourner. Les roues avant braquent avec. Beaucoup sont à
   sec : un jerrican tenu en main permet de faire le PLEIN. Phares la nuit, SORTIR à l'arrêt.
 - Sur ordinateur : flèches / ZQSD marcher, `Maj` courir, `IJKL` viser, `Espace` gaz, `X` frein, `E` interagir, `F` utiliser, `Tab` inventaire, `1`–`9` barre rapide.
 

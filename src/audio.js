@@ -68,12 +68,34 @@ const rr = (a, b) => a + Math.random() * (b - a);
 
 // ---------------------------------------------------------------- bruitages
 const FX = {
-  step(t) {
-    // sol mou, plancher ou bitume
-    const floor = t === 7 || t === 8 || t === 9 || t === 10, hard = t === 5 || t === 6 || t >= 13;
-    if (floor) { tone(rr(90, 120), 0.08, { vol: 0.12 }); noise(0.05, { f: 900, vol: 0.05 }); }
-    else if (hard) noise(0.06, { type: 'bandpass', f: rr(1800, 2600), q: 1.2, vol: 0.07 });
-    else noise(0.09, { f: rr(500, 800), vol: 0.09 });
+  // Pas : un appui grave (le talon) + une texture qui dépend du sol, pied gauche et droit
+  // légèrement différents, plus fort et plus sec en courant.
+  step(o = {}) {
+    const t = o.t, run = o.run ? 1.6 : 1, side = o.foot ? 1.06 : 0.94, v = 0.85 + Math.random() * 0.3;
+    const wood = t === 7, soft = t === 10 || t === 20, tile = t === 8 || t === 9 || t === 21;
+    const hard = t === 5 || t === 6 || t === 13 || t === 14 || t === 15 || t === 18;
+    const grass = t === 0 || t === 1 || t === 2 || t === 11, earth = t === 3 || t === 4 || t === 16 || t === 19;
+    if (wood) {
+      tone(rr(95, 115) * side, 0.09, { vol: 0.14 * run * v, to: 70 });
+      noise(0.05, { type: 'bandpass', f: rr(600, 900), q: 2, vol: 0.05 * v });
+      if (Math.random() < 0.12) tone(rr(300, 420), 0.25, { type: 'triangle', vol: 0.012, to: rr(260, 380), at: 0.02 }); // parquet qui grince
+    } else if (soft) {
+      noise(0.08, { f: 500, vol: 0.06 * run * v });
+    } else if (tile) {
+      tone(rr(160, 190) * side, 0.04, { vol: 0.08 * v });
+      noise(0.04, { type: 'highpass', f: 3000, vol: 0.05 * run * v });
+    } else if (hard) {
+      tone(rr(70, 90) * side, 0.06, { vol: 0.08 * run * v });
+      noise(0.045, { type: 'bandpass', f: rr(2200, 3200), q: 1.4, vol: 0.07 * run * v });
+      noise(0.03, { type: 'highpass', f: 5000, vol: 0.02 * v, at: 0.03 }); // le gravier sous la semelle
+    } else if (earth) {
+      tone(rr(60, 80) * side, 0.08, { vol: 0.07 * run * v });
+      for (let i = 0; i < 3; i++) noise(0.025, { type: 'bandpass', f: rr(900, 2200), q: 2, vol: 0.05 * run * v, at: i * 0.02 + rr(0, 0.01) }); // crissement
+    } else if (grass) {
+      tone(rr(55, 70) * side, 0.07, { vol: 0.05 * run * v });
+      noise(0.13, { type: 'bandpass', f: rr(1800, 2800), q: 0.8, vol: 0.045 * run * v, attack: 0.02 }); // froissement de l'herbe
+    } else noise(0.08, { f: 700, vol: 0.07 * v });
+    if (o.leaves) noise(0.18, { type: 'highpass', f: rr(3000, 4500), vol: 0.035 * run * v, attack: 0.01, at: 0.01 }); // feuilles mortes
   },
   open() { tone(rr(160, 200), 0.3, { type: 'sawtooth', vol: 0.03, to: 110 }); noise(0.12, { f: 700, vol: 0.08 }); },
   fridge() { noise(0.08, { type: 'highpass', f: 2500, vol: 0.06 }); tone(55, 0.6, { vol: 0.05 }); },
@@ -102,6 +124,14 @@ const FX = {
     noise(2.4, { type: 'bandpass', f: 1800, q: 0.6, vol: 0.08 });
     for (let i = 0; i < 5; i++) tone(rr(200, 330), 0.25, { type: 'square', vol: 0.006, at: 0.6 + i * 0.28 });
   },
+  shot_pistol() { noise(0.25, { f: 1800, vol: 0.5, to: 300, attack: 0.001 }); tone(140, 0.18, { vol: 0.35, to: 50 }); noise(1.2, { f: 500, vol: 0.12, at: 0.05, to: 120, dest: verb }); },
+  shot_shotgun() { noise(0.4, { f: 1200, vol: 0.7, to: 200, attack: 0.001 }); tone(90, 0.3, { vol: 0.45, to: 40 }); noise(1.8, { f: 400, vol: 0.18, at: 0.05, to: 90, dest: verb }); tone(500, 0.06, { type: 'square', vol: 0.03, at: 0.45 }); noise(0.08, { type: 'bandpass', f: 1500, vol: 0.08, at: 0.5 }); },
+  shot_rifle() { noise(0.3, { f: 3000, vol: 0.6, to: 400, attack: 0.001 }); tone(110, 0.25, { vol: 0.4, to: 45 }); noise(2.2, { f: 600, vol: 0.14, at: 0.04, to: 100, dest: verb }); },
+  dry() { tone(1800, 0.02, { type: 'square', vol: 0.05 }); },
+  reload() { noise(0.05, { type: 'bandpass', f: 2500, q: 3, vol: 0.12 }); tone(900, 0.04, { type: 'square', vol: 0.04, at: 0.08 }); },
+  thud() { tone(70, 0.4, { vol: 0.25, to: 40 }); noise(0.3, { f: 300, vol: 0.15 }); },
+  stairs() { for (let i = 0; i < 4; i++) tone(rr(100, 125), 0.08, { vol: 0.1, at: i * 0.12 }); },
+  powerdown() { tone(120, 2.5, { type: 'sawtooth', vol: 0.05, to: 30 }); noise(0.15, { type: 'highpass', f: 2000, vol: 0.2 }); },
   starter() { for (let i = 0; i < 5; i++) noise(0.09, { type: 'bandpass', f: 600, q: 2, vol: 0.12, at: i * 0.11 }); tone(45, 0.8, { type: 'sawtooth', vol: 0.06, at: 0.55, to: 60 }); },
   crash() { noise(0.5, { f: 900, vol: 0.35, to: 200 }); tone(60, 0.4, { vol: 0.2 }); for (let i = 0; i < 4; i++) tone(rr(1500, 3500), 0.2, { vol: 0.03, at: 0.05 + i * 0.05 }); },
   pour() { noise(0.7, { type: 'bandpass', f: 700, q: 3, vol: 0.06 }); },

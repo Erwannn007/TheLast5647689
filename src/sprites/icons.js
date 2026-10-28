@@ -119,6 +119,26 @@ export const ICONS = {
     box(-4, 0.5, -1, 1, 10, 12, FABRIC.red, plain), // poignée
     sm(cylinder(3, 0, 1, 10, 12.5, METAL)), // bouchon
   ]),
+  pistolet: () => model([
+    { a: [-4.5, 0, 2.5], b: [4.5, 0, 2.5], r1: 1.5, ramp: METAL, group: 1, tex: (p) => (p.t > 0.92 ? 0 : p.shade) }, // culasse
+    { a: [-3.4, 0, 1.2], b: [-5, 0, -4], r1: 1.35, r2: 1.2, ramp: TIRE, group: 2 }, // crosse
+    { a: [-1.6, 0, 0.6], r1: 0.9, ramp: METAL, group: 3 }, // pontet
+  ]),
+  fusil: () => model([
+    { a: [-6.5, 0, -3.5], b: [-2, 0, -0.8], r1: 1.4, r2: 1.1, ramp: WOOD, group: 1 }, // crosse
+    { a: [-2, 0, -0.7], b: [6.5, 0, 3.6], r1: 0.75, ramp: METAL, group: 2 }, // canon
+    { a: [1.2, 0, 0.4], b: [3.6, 0, 1.7], r1: 1.05, ramp: WOOD, group: 3 }, // pompe
+  ]),
+  carabine: () => model([
+    { a: [-6.5, 0, -3.6], b: [-1.5, 0, -0.7], r1: 1.3, r2: 1, ramp: DARKWOOD, group: 1 },
+    { a: [-1.5, 0, -0.7], b: [6.8, 0, 3.8], r1: 0.6, ramp: METAL, group: 2 },
+    { a: [-1.4, 0, 1.4], b: [2.6, 0, 3.3], r1: 0.95, ramp: TIRE, group: 3 }, // lunette
+  ]),
+  balles_9: () => solid([box(-3.5, 3.5, -2.5, 2.5, 0, 4, FABRIC.blue, plain), ...[-2, 0, 2].map((u) => sm(cylinder(u, 0, 0.8, 4, 6.5, YELLOW, (q) => (q.z > 5.6 ? COPPER[q.shade] : q.shade))))]),
+  cartouches: () => solid([-2.5, 0, 2.5].map((u, i) => sm(cylinder(u, i === 1 ? 1.2 : 0, 1.3, 0, 7.5, FABRIC.red, (q) => (q.z < 1.8 ? YELLOW[q.shade] : q.face === 't' ? 1 : q.shade))))),
+  balles_308: () => solid([box(-4, 4, -2.2, 2.2, 0, 3.4, FABRIC.green, plain), ...[-2.5, -0.8, 0.9, 2.6].map((u) => sm(cylinder(u, 0, 0.6, 3.4, 8, YELLOW, (q) => (q.z > 6.8 ? COPPER[q.shade] : q.shade))))]),
+  viande: () => model([{ a: [-3.5, 0, 2.5], b: [3.5, 0, 2.5], r1: 3, r2: 2.4, ramp: APPLE, group: 1, tex: (p) => (hash(p.x, p.y, 4) < 0.18 ? CREAM[2] : p.shade) }, { a: [-4.5, 0, 2.5], r1: 1.2, ramp: CREAM, group: 2 }]),
+  steak: () => model([{ a: [-3.5, 0, 2], b: [3.5, 0, 2], r1: 2.8, r2: 2.3, ramp: COOKED, group: 1, tex: (p) => ((p.x + p.y) % 4 === 0 ? 0 : p.shade) }]),
   radio: () => solid([
     box(-5, 5, -2, 2, 0, 7, DARKWOOD, (q) => {
       if (q.face === 'l' && q.u < 1 && q.z > 1.5 && q.z < 5.5) return ((q.u + q.z * 0 + 64) % 1.5) < 0.6 ? 0 : 1;

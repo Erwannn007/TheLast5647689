@@ -35,6 +35,15 @@ export const ITEMS = {
   canne: { name: 'Canne à pêche', desc: 'Tenez-la face à l\'eau.', stack: 1, tool: true },
   jerrican: { name: 'Jerrican', desc: 'De l\'essence. Tenez-le près d\'une voiture.', stack: 1, charge: 100 },
   radio: { name: 'Radio', desc: 'Peut-être que quelqu\'un parle encore.', stack: 1, charge: 100, use: { verb: 'ÉCOUTER' } },
+  // --- armes à feu : d = balles dans le chargeur ---
+  pistolet: { use: { verb: 'RECHARGER' }, name: 'Pistolet', desc: 'Un 9 mm de service.', stack: 1, tool: true, gun: { ammo: 'balles_9', cap: 15, range: 11, dmg: 1, pellets: 1, spread: 0.045, delay: 0.32, reload: 1.6, sound: 'shot_pistol' } },
+  fusil: { use: { verb: 'RECHARGER' }, name: 'Fusil à pompe', desc: 'Dévastateur, de près.', stack: 1, tool: true, gun: { ammo: 'cartouches', cap: 6, range: 7, dmg: 1, pellets: 7, spread: 0.2, delay: 0.9, reload: 2.6, sound: 'shot_shotgun' } },
+  carabine: { use: { verb: 'RECHARGER' }, name: 'Carabine', desc: 'Pour la chasse, avec lunette.', stack: 1, tool: true, gun: { ammo: 'balles_308', cap: 5, range: 24, dmg: 3, pellets: 1, spread: 0.008, delay: 1.1, reload: 2.4, sound: 'shot_rifle' } },
+  balles_9: { name: 'Balles 9 mm', desc: 'Pour le pistolet.', stack: 60 },
+  cartouches: { name: 'Cartouches', desc: 'Calibre 12, pour le fusil.', stack: 24 },
+  balles_308: { name: 'Balles .308', desc: 'Pour la carabine.', stack: 40 },
+  viande: { name: 'Viande crue', desc: 'À cuire au feu.', stack: 8, use: { verb: 'MANGER', hunger: 14, sick: 0.7 }, cook: 'steak' },
+  steak: { name: 'Viande grillée', desc: 'Le meilleur repas depuis longtemps.', stack: 8, use: { verb: 'MANGER', hunger: 42, moral: 12 } },
   // --- matériaux ---
   buche: { name: 'Bûche', desc: 'Brûle longtemps.', stack: 16, fuel: 90 },
   branche: { name: 'Branche', desc: 'Petit bois.', stack: 24, fuel: 25 },
@@ -55,6 +64,7 @@ export function makeStack(id, n = 1, rnd = Math.random) {
   const def = ITEMS[id];
   const s = { id, n: Math.min(n, def.stack) };
   if (def.charge) s.d = Math.round(def.charge * (0.3 + rnd() * 0.7));
+  if (def.gun) s.d = Math.floor(rnd() * (def.gun.cap + 1)); // un chargeur plus ou moins plein
   if (id === 'note') s.d = (rnd() * NOTES.length) | 0;
   if (id === 'photo') s.d = (rnd() * PHOTOS.length) | 0;
   if (id === 'journal') s.d = (rnd() * JOURNALS.length) | 0;
@@ -67,17 +77,28 @@ export const LOOT = {
   counter: { rolls: [0, 3], table: [['haricots', 6, 2], ['soupe', 5, 2], ['chips', 4, 1], ['cereales', 4, 1], ['biscuits', 4, 1], ['ouvre_boite', 2, 1], ['couteau', 2, 1], ['allumettes', 3, 1], ['bouteille', 3, 1], ['eau', 2, 1]] },
   sink: { rolls: [0, 2], table: [['chiffon', 5, 2], ['bouteille', 3, 1], ['comprimes', 1, 2], ['allumettes', 1, 1]] },
   stove: { rolls: [0, 1], table: [['allumettes', 3, 1], ['conserve_vide', 2, 1], ['haricots', 2, 1]] },
-  wardrobe: { rolls: [1, 3], table: [['drap', 6, 2], ['chiffon', 3, 2], ['lampe', 2, 1], ['piles', 2, 2], ['photo', 2, 1], ['ficelle', 2, 1], ['radio', 1, 1]] },
-  dresser: { rolls: [0, 3], table: [['note', 3, 1], ['photo', 4, 1], ['piles', 3, 2], ['briquet', 2, 1], ['comprimes', 2, 2], ['chocolat', 2, 1], ['livre', 2, 1], ['ficelle', 1, 1]] },
+  wardrobe: { rolls: [1, 3], table: [['fusil', 0.4, 1], ['cartouches', 0.8, 6], ['drap', 6, 2], ['chiffon', 3, 2], ['lampe', 2, 1], ['piles', 2, 2], ['photo', 2, 1], ['ficelle', 2, 1], ['radio', 1, 1]] },
+  dresser: { rolls: [0, 3], table: [['pistolet', 0.4, 1], ['balles_9', 0.8, 12], ['note', 3, 1], ['photo', 4, 1], ['piles', 3, 2], ['briquet', 2, 1], ['comprimes', 2, 2], ['chocolat', 2, 1], ['livre', 2, 1], ['ficelle', 1, 1]] },
   bookshelf: { rolls: [1, 3], table: [['livre', 6, 1], ['journal', 3, 2], ['note', 2, 1], ['photo', 1, 1]] },
   bathsink: { rolls: [0, 3], table: [['bandage', 4, 2], ['comprimes', 4, 2], ['chiffon', 3, 2]] },
   tv: { rolls: [0, 1], table: [['piles', 1, 2], ['journal', 1, 1]] },
   shelf: { rolls: [1, 5], table: [['haricots', 6, 3], ['soupe', 5, 3], ['chips', 5, 2], ['soda', 5, 3], ['eau', 5, 2], ['biscuits', 4, 2], ['cereales', 3, 2], ['chocolat', 4, 3], ['piles', 2, 2], ['allumettes', 2, 1], ['bandage', 1, 2]] },
-  crate: { rolls: [1, 3], table: [['jerrican', 3, 1], ['buche', 4, 3], ['ficelle', 3, 2], ['hache', 2, 1], ['pied_de_biche', 2, 1], ['canne', 2, 1], ['piles', 2, 2], ['bouteille', 2, 1]] },
+  crate: { rolls: [1, 3], table: [['cartouches', 2, 8], ['carabine', 1, 1], ['jerrican', 3, 1], ['buche', 4, 3], ['ficelle', 3, 2], ['hache', 2, 1], ['pied_de_biche', 2, 1], ['canne', 2, 1], ['piles', 2, 2], ['bouteille', 2, 1]] },
   trash: { rolls: [0, 2], table: [['jerrican', 1, 1], ['journal', 4, 2], ['bouteille', 3, 1], ['conserve_vide', 4, 1], ['chiffon', 2, 1], ['chips', 1, 1]] },
   mailbox: { rolls: [0, 2], table: [['note', 4, 1], ['journal', 4, 1], ['photo', 2, 1]] },
   car: { rolls: [0, 4], table: [['jerrican', 2, 1], ['eau', 4, 1], ['lampe', 2, 1], ['pied_de_biche', 2, 1], ['briquet', 2, 1], ['chips', 3, 1], ['soda', 3, 1], ['drap', 2, 1], ['note', 2, 1], ['radio', 1, 1], ['bandage', 2, 1]] },
 };
+
+Object.assign(LOOT, {
+  gunrack: { rolls: [1, 4], table: [['pistolet', 3, 1], ['fusil', 2, 1], ['carabine', 2, 1], ['balles_9', 5, 30], ['cartouches', 4, 12], ['balles_308', 3, 15]] },
+  locker: { rolls: [1, 3], table: [['pistolet', 2, 1], ['balles_9', 5, 20], ['lampe', 3, 1], ['bandage', 3, 2], ['piles', 2, 2], ['cartouches', 1, 6]] },
+  filing: { rolls: [0, 2], table: [['journal', 5, 2], ['note', 3, 1], ['piles', 2, 2], ['photo', 1, 1]] },
+  desk: { rolls: [0, 2], table: [['note', 3, 1], ['chocolat', 3, 1], ['piles', 2, 2], ['briquet', 2, 1], ['soda', 2, 1], ['photo', 1, 1]] },
+  vending: { rolls: [2, 6], table: [['soda', 6, 3], ['chips', 5, 2], ['chocolat', 5, 3], ['eau', 4, 2], ['biscuits', 3, 2]] },
+  rack: { rolls: [1, 4], table: [['jerrican', 3, 1], ['buche', 3, 4], ['ficelle', 3, 2], ['hache', 2, 1], ['pied_de_biche', 2, 1], ['piles', 3, 4], ['haricots', 3, 4], ['eau', 3, 2], ['drap', 2, 2]] },
+  medcab: { rolls: [1, 4], table: [['bandage', 6, 3], ['comprimes', 6, 3], ['chiffon', 3, 3]] },
+  haybale: { rolls: [0, 1], table: [['ficelle', 3, 1], ['cartouches', 1, 6]] },
+});
 
 export function rollLoot(kind, rnd, size) {
   const L = LOOT[kind];

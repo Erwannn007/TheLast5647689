@@ -199,7 +199,7 @@ export function carPrims(v, cu = 0, cv = 0, roll = 0, steer = 0) {
 
 // Les voitures roulent librement : 16 orientations (22,5°), le nez vers l'angle monde a = i·π/8
 // (0 = vers +x). Le sprite est centré sur le milieu de la voiture.
-export const CAR_DIRS = 16;
+export const CAR_DIRS = 32;
 export const WHEEL_FRAMES = 3;
 // s : braquage des roues avant, 0 = gauche, 1 = droit, 2 = droite
 export function carSprite(v, i, f = 0, s = 1) {

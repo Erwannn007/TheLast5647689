@@ -2,7 +2,7 @@
 // Volumes droits (solids.js) : 16 unités = 1 tuile, ancre au centre de la tuile.
 import { hash } from '../raster.js';
 import { box, renderSolids } from '../solids.js';
-import { SIDING, WALLPAPER, ROOF, TRIM, DOOR, GLASS, CONCRETE, PAINTWOOD, WOOD, BRICK } from '../palette.js';
+import { SIDING, WALLPAPER, ROOF, TRIM, DOOR, GLASS, CONCRETE, PAINTWOOD, WOOD, BRICK, METAL } from '../palette.js';
 
 export const WALL_H = 28, WALL_CUT = 5;
 // bits de voisinage : 1 = -x, 2 = +x, 4 = -y, 8 = +y
@@ -12,8 +12,41 @@ export const N_W = 1, N_E = 2, N_N = 4, N_S = 8;
 const swapBox = (P) => ({ ...P, b: [P.b[2], P.b[3], P.b[0], P.b[1], P.b[4], P.b[5]] });
 
 // Matière d'un mur : bardage horizontal dehors, papier peint dedans, plinthe, dessus sombre.
-function wallMat(style, intU, intV, cutTop) {
-  const ext = SIDING[style.ext], inn = WALLPAPER[style.int];
+// Matières extérieures : 0-4 bardage peint, 5 brique, 6 béton, 7 mur-rideau vitré, 8 grange, 9 tôle.
+// upper : étage (pas de soubassement) ; les vitres posent q.glow = 1 (rallumées la nuit s'il y a du courant).
+function extMat(e, q, along, upper) {
+  const ext = SIDING[e], sh = q.shade;
+  const c3 = (s) => ext[Math.max(0, Math.min(3, s))];
+  if (!upper && q.z < 2.5 && e !== 7) return CONCRETE[Math.max(0, sh - 1)]; // soubassement
+  switch (e) {
+    case 5: { // brique : rangs de 2, joints décalés
+      const row = Math.floor((q.z + 64) / 2);
+      if (((q.z + 64) % 2) < 0.45 || ((along + 64 + (row & 1) * 2.2) % 4.4) < 0.45) return CONCRETE[Math.min(3, sh + 1)];
+      return c3(sh - (hash(Math.floor(along / 4.4 + (row & 1) * 0.5), row, 5) < 0.25 ? 1 : 0));
+    }
+    case 6: // béton : panneaux et joints creux
+      if (((along + 64) % 8) < 0.5 || ((q.z + 64) % 14) < 0.5) return c3(sh - 1);
+      return c3(sh - (hash(q.x, q.y, 6) < 0.12 ? 1 : 0));
+    case 7: { // mur-rideau : montants tous les 4, allège sombre, vitrage qui reflète
+      if (((along + 64) % 4) < 0.6 || q.z < 2.2 || q.z > WALL_H - 2) return METAL[Math.min(3, sh + 1)];
+      q.glow = 1;
+      const refl = ((along + q.z * 0.7 + 64) % 9);
+      return refl < 1.2 ? GLASS[3] : c3(sh);
+    }
+    case 8: // grange : planches verticales
+      return c3(sh - (((along + 64) % 2.6) < 0.5 ? 1 : 0) - (hash(Math.floor(along / 2.6), 0, 8) < 0.2 ? 1 : 0));
+    case 9: // tôle ondulée
+      return c3(sh + (((along + 64) % 1.6) < 0.8 ? 0 : -1));
+    default: {
+      if (q.z > WALL_H - 1.2) return TRIM[sh];
+      const board = ((q.z + 64) % 4) < 0.9;
+      return c3(sh - (board ? 1 : 0));
+    }
+  }
+}
+
+function wallMat(style, intU, intV, cutTop, upper) {
+  const inn = WALLPAPER[style.int];
   return (q) => {
     if (q.face === 't') return cutTop ? CONCRETE[1] : TRIM[q.shade > 1 ? 1 : 0];
     const inside = q.face === 'l' ? intV : intU;
@@ -24,17 +57,14 @@ function wallMat(style, intU, intV, cutTop) {
       const s = q.shade + (stripe && hash(q.x, q.y >> 1, 3) < 0.6 ? -1 : 0);
       return inn[Math.max(0, Math.min(3, s))];
     }
-    if (q.z < 2.5) return CONCRETE[Math.max(0, q.shade - 1)]; // soubassement
-    if (q.z > WALL_H - 1.2) return TRIM[q.shade];
-    const board = ((q.z + 64) % 4) < 0.9;
-    return ext[Math.max(0, Math.min(3, q.shade - (board ? 1 : 0)))];
+    return extMat(style.ext, q, along, upper);
   };
 }
 
 // kind : wall | window | broken | door | open | doorway
-export function wallSprite(mask, kind, style, intU, intV, cut) {
+export function wallSprite(mask, kind, style, intU, intV, cut, upper = 0) {
   const H = cut ? WALL_CUT : WALL_H;
-  const mat = wallMat(style, intU, intV, cut);
+  const mat = wallMat(style, intU, intV, cut, upper);
   const t = 2;
   let prims = [];
   const straightX = (mask & 3) === 3 && !(mask & 12), straightY = (mask & 12) === 12 && !(mask & 3);
@@ -59,6 +89,7 @@ export function wallSprite(mask, kind, style, intU, intV, cut) {
             const a = q.face === 'l' ? q.u : q.v;
             if (Math.abs(a) < 0.5 || Math.abs(q.z - 15) < 0.4) return TRIM[2]; // croisillons
             const refl = (a + (q.z - 10) * 0.6) % 7;
+            q.glow = 1;
             return refl > 0 && refl < 1.4 ? GLASS[3] : GLASS[q.z > 15 ? 1 : 0];
           }), smooth: true });
         } else {

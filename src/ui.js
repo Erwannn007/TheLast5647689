@@ -4,7 +4,9 @@ import * as B from './bank.js';
 import { G, HOTBAR, addTo, sameKind, maxStack, hour, day, say } from './state.js';
 import { ITEMS, matchRecipe, COOK_TIME } from './items.js';
 import { LABEL } from './world.js';
-import { useItem, drop, save, newGame, wipe, refreshFires, driving } from './game.js';
+import { useItem, drop, save, newGame, wipe, refreshFires, driving, fire } from './game.js';
+import { MAP, W as WK } from './world.js';
+import { T } from './sprites/tiles.js';
 import { sfx, setMuted, initAudio } from './audio.js';
 import { screenOf } from './render.js';
 
@@ -107,7 +109,7 @@ function layoutHUD() {
   const acts = G.target ? G.target.acts : [];
   const ax = VW - safe.r - 24, ay = hy - 30;
   if (driving()) {
-    wheelPos = { cx: safe.l + 46, cy: hy - 76, r: 32 };
+    if (G.settings.drive === 'wheel') wheelPos = { cx: safe.l + 46, cy: hy - 76, r: 32 };
     // pédales à droite (on les garde enfoncées), sortir au-dessus
     buttons.push({ kind: 'gas', hold: true, label: 'GAZ', cx: ax, cy: ay - 4, r: 19, col: [70, 170, 110] });
     buttons.push({ kind: 'brake', hold: true, label: 'FREIN', cx: ax - 46, cy: ay + 4, r: 16, col: [225, 70, 90] });
@@ -115,14 +117,16 @@ function layoutHUD() {
   } else {
     if (acts[0]) buttons.push({ kind: 'act', a: acts[0], cx: ax, cy: ay, r: 17, col: [70, 170, 110] });
     if (acts[1]) buttons.push({ kind: 'act', a: acts[1], cx: ax, cy: ay - 46, r: 12, col: [60, 165, 190] });
-    if (acts[2]) buttons.push({ kind: 'act', a: acts[2], cx: ax - 34, cy: ay - 40, r: 11, col: [60, 165, 190] });
     const h = G.p.inv[G.p.sel];
+    if (h && ITEMS[h.id].gun) buttons.push({ kind: 'fire', label: 'TIRER', cx: ax - 36, cy: ay - 44, r: 14, col: [225, 70, 90] });
+    else if (acts[2]) buttons.push({ kind: 'act', a: acts[2], cx: ax - 34, cy: ay - 40, r: 11, col: [60, 165, 190] });
     const use = h && ITEMS[h.id].use;
     if (use) buttons.push({ kind: 'use', label: use.verb, cx: VW - safe.r - (acts[0] ? 66 : 24), cy: hy - 24, r: 13, col: [230, 170, 50] });
     buttons.push({ kind: 'sprint', hold: true, label: 'COURIR', cx: VW - safe.r - (use ? 104 : acts[0] ? 66 : 62), cy: hy - (use || !acts[0] ? 24 : 24), r: 13, col: [120, 90, 220] });
   }
   buttons.push({ kind: 'bag', label: 'SAC', cx: safe.l + 20, cy: hy - 24, r: 13, col: [200, 90, 120] });
   buttons.push({ kind: 'menu', x: VW - safe.r - 15, y: safe.t + 3, w: 12, h: 12 });
+  buttons.push({ kind: 'map', x: VW - safe.r - 15, y: safe.t + 18, w: 12, h: 12 });
   for (const b of buttons) if (b.r) { b.x = b.cx - b.r - 3; b.y = b.cy - b.r - 3; b.w = b.h = b.r * 2 + 6; b.h += 8; }
 }
 
@@ -160,13 +164,19 @@ export function drawHUD() {
     drawText('ESSENCE', x - 1, y, '#d8ccb4');
     ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x - 1, y + 7, 42, 4);
     ctx.fillStyle = car.fuel > 15 ? '#e0b040' : '#d05040'; ctx.fillRect(x, y + 8, Math.round(40 * car.fuel / 100), 2);
-    const kmh = `${Math.round(Math.abs(car.speed) * 3.2 * 3.6)} KM/H`;
+    const kmh = `${Math.round(Math.abs(car.speed) * 7)} KM/H`;
     drawText(kmh, x + 41 - textWidth(kmh), y + 14, '#efe6d2');
   }
   // bouton menu
   const mb = buttons.find((b) => b.kind === 'menu');
   ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(mb.x, mb.y, 12, 12);
   ctx.fillStyle = '#e8e0d0'; for (let i = 0; i < 3; i++) ctx.fillRect(mb.x + 3, mb.y + 3 + i * 3, 6, 1);
+  // bouton carte : une petite carte pliée
+  const cb = buttons.find((b) => b.kind === 'map');
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(cb.x, cb.y, 12, 12);
+  ctx.fillStyle = '#d8ccb0'; ctx.fillRect(cb.x + 2, cb.y + 3, 8, 6);
+  ctx.fillStyle = '#7a9a5c'; ctx.fillRect(cb.x + 3, cb.y + 4, 2, 4); ctx.fillStyle = '#5a7aa0'; ctx.fillRect(cb.x + 6, cb.y + 5, 3, 2);
+  ctx.fillStyle = '#c8402c'; ctx.fillRect(cb.x + 5, cb.y + 4, 1, 1);
 
   // barre rapide
   for (const b of buttons) {
@@ -200,7 +210,7 @@ export function drawHUD() {
   // repère au-dessus de la cible
   if (G.target && !G.ui && G.target.kind !== 'drive') {
     const t = G.target;
-    const [X, Y] = screenOf(t.x + 0.5, t.y + 0.5);
+    const [X, Y0] = screenOf(t.x + 0.5, t.y + 0.5), Y = Y0 - (G.p.l || 0) * 28;
     const lift = t.kind === 'water' ? 6 : t.kind === 'wall' ? 34 : 26;
     const bob = Math.floor(G.clock * 3) & 1;
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -222,7 +232,7 @@ export function drawHUD() {
   }
   // action en cours : petite barre de progression
   if (p.act && p.act.dur > 0.9) {
-    const [X, Y] = screenOf(p.x, p.y);
+    const [X, Y0] = screenOf(p.x, p.y), Y = Y0 - (p.l || 0) * 28;
     const k = Math.min(1, p.act.t / p.act.dur);
     ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(X - 11, Y - 46, 22, 4);
     ctx.fillStyle = '#efe2c0'; ctx.fillRect(X - 10, Y - 45, Math.round(20 * k), 2);
@@ -544,19 +554,62 @@ function drawText2(text, title) {
 
 function menuButtons() {
   const { W: VW, H: VH } = view;
-  const items = [['REPRENDRE', 'resume'], [G.muted ? 'SON : NON' : 'SON : OUI', 'sound'], [menuConfirm ? 'VRAIMENT ? TOUT EFFACER' : 'NOUVELLE PARTIE', 'new']];
+  const items = [['REPRENDRE', 'resume'], [G.muted ? 'SON : NON' : 'SON : OUI', 'sound'],
+    [G.settings.drive === 'wheel' ? 'CONDUITE : VOLANT' : 'CONDUITE : JOYSTICK', 'drive'], [menuConfirm ? 'VRAIMENT ? TOUT EFFACER' : 'NOUVELLE PARTIE', 'new']];
   return items.map(([label, act], i) => ({ label, act, x: (VW - 120) >> 1, y: (VH >> 1) - 30 + i * 22, w: 120, h: 16 }));
 }
 function drawMenu() {
   const { W: VW, H: VH } = view;
   ctx.fillStyle = 'rgba(8,6,10,0.6)'; ctx.fillRect(0, 0, VW, VH);
-  panel((VW - 136) >> 1, (VH >> 1) - 48, 136, 86, BASE);
+  panel((VW - 136) >> 1, (VH >> 1) - 48, 136, 108, BASE);
   drawText('PAUSE', (VW - textWidth('PAUSE')) >> 1, (VH >> 1) - 43, '#f0e4c8');
   for (const b of menuButtons()) {
     ctx.fillStyle = b.act === 'new' ? (menuConfirm ? '#a8402c' : '#5a4a3c') : '#4a6a52';
     ctx.fillRect(b.x, b.y, b.w, b.h);
     drawText(b.label, b.x + ((b.w - textWidth(b.label)) >> 1), b.y + 6, '#fff');
   }
+}
+
+// ---------------------------------------------------------------- carte
+// une image de la carte entière (1 pixel par case), refaite à chaque nouvelle partie
+let mapCanvas = null, mapSeed = null;
+const MAPCOL = {
+  [T.GRASS]: [92, 120, 62], [T.DRY]: [126, 118, 68], [T.FOREST]: [52, 74, 44], [T.DIRT]: [102, 72, 50], [T.PATH]: [140, 108, 76],
+  [T.ASPHALT]: [56, 58, 64], [T.ROAD_LX]: [56, 58, 64], [T.ROAD_LY]: [56, 58, 64], [T.PARK]: [64, 66, 70], [T.SIDEWALK]: [124, 120, 112],
+  [T.SAND]: [190, 170, 116], [T.WATER]: [52, 94, 120], [T.FIELD]: [120, 86, 56], [T.COBBLE]: [150, 140, 122], [T.GRAVEL]: [124, 118, 106],
+  [T.CONCRETE]: [118, 116, 108],
+};
+function buildMap() {
+  const w = G.world;
+  mapCanvas = document.createElement('canvas');
+  mapCanvas.width = mapCanvas.height = MAP;
+  const c = mapCanvas.getContext('2d'), img = c.createImageData(MAP, MAP);
+  for (let i = 0; i < MAP * MAP; i++) {
+    let col = MAPCOL[w.tile[i]] || [170, 150, 120];
+    if (w.room[i] >= 0) col = [196, 176, 140];
+    const k = w.wall[i];
+    if (k === WK.FENCE) col = [200, 196, 180]; else if (k) col = [40, 34, 30];
+    img.data.set([...col, 255], i * 4);
+  }
+  // les tours en plus sombre, d'autant plus qu'elles sont hautes
+  for (const b of w.blds) if (b.floors > 1) for (let y = b.y0 + 1; y < b.y1; y++) for (let x = b.x0 + 1; x < b.x1; x++) img.data.set([150 - b.floors * 10, 140 - b.floors * 10, 130 - b.floors * 8, 255], (y * MAP + x) * 4);
+  c.putImageData(img, 0, 0);
+  mapSeed = G.seed;
+}
+function drawMap() {
+  const { W: VW, H: VH, safe } = view, ui = G.ui, p = G.p;
+  if (!mapCanvas || mapSeed !== G.seed) buildMap();
+  ctx.fillStyle = '#16120e'; ctx.fillRect(0, 0, VW, VH);
+  // 1 pixel par case, centrée sur le joueur, qu'on fait glisser au doigt
+  const cx = Math.round(VW / 2 - p.x + ui.dx), cy = Math.round(VH / 2 - p.y + ui.dy);
+  ctx.drawImage(mapCanvas, cx, cy);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(0, 0, VW, safe.t + 14);
+  drawText('CARTE', 6, safe.t + 5, '#f0e4c8');
+  drawText('GLISSER : DÉPLACER   TOUCHER : FERMER', 6, VH - safe.b - 10, '#b8ac98');
+  // le joueur clignote ; ses voitures en rouge sombre
+  for (const c of G.world.cars) { ctx.fillStyle = '#8a3030'; ctx.fillRect(cx + Math.floor(c.x), cy + Math.floor(c.y), 1, 1); }
+  if (Math.floor(G.clock * 3) & 1) { ctx.fillStyle = '#ff4030'; ctx.fillRect(cx + Math.floor(p.x) - 1, cy + Math.floor(p.y) - 1, 3, 3); }
+  ctx.fillStyle = '#fff'; ctx.fillRect(cx + Math.floor(p.x), cy + Math.floor(p.y), 1, 1);
 }
 
 export function drawOverlay() {
@@ -577,6 +630,7 @@ export function drawOverlay() {
     drawText2(ui.text, ui.title);
   }
   else if (ui.kind === 'menu') drawMenu();
+  else if (ui.kind === 'map') drawMap();
 }
 
 export function drawTitle(hasSaved) {
@@ -648,6 +702,7 @@ function moveP(e) {
   if (!P) return;
   const [x, y] = toGame(e);
   P.x = x; P.y = y;
+  if (G.ui && G.ui.kind === 'map') { G.ui.dx += x - (P.lx ?? P.x0); G.ui.dy += y - (P.ly ?? P.y0); P.lx = x; P.ly = y; return; }
   // volant : il suit l'angle du doigt autour de son centre
   if (wheelGrab && wheelGrab.id === e.pointerId && wheelPos) {
     let d = Math.atan2(y - wheelPos.cy, x - wheelPos.cx) - wheelGrab.a0;
@@ -676,7 +731,11 @@ function up(e) {
   if (P.btn && P.btn.hold) { input[P.btn.kind] = false; return; }
   if (wheelGrab && wheelGrab.id === e.pointerId) { wheelGrab = null; input.wheelHeld = false; return; }
   if (stick && stick.id === e.pointerId) { stick = null; input.x = input.y = input.mag = 0; return; }
-  if (aimStick && aimStick.id === e.pointerId) { aimStick = null; input.ax = input.ay = input.amag = 0; return; }
+  if (aimStick && aimStick.id === e.pointerId) {
+    const h = G.p.inv[G.p.sel];
+    if (h && ITEMS[h.id].gun && input.amag > 0.8) fire();
+    aimStick = null; input.ax = input.ay = input.amag = 0; return;
+  }
   if (P.drag === true) { endDrag(slotAt(P.x, P.y)); return; }
   if (P.drag === 'none') return; // glissé depuis une case vide : rien
   const { x, y } = P;
@@ -686,9 +745,11 @@ function up(e) {
   const ui = G.ui;
   if (ui) {
     if (ui.kind === 'text') { closeUI(); return; }
+    if (ui.kind === 'map') { if (Math.hypot(P.x - P.x0, P.y - P.y0) < 6) { G.ui = null; sfx('ui'); } return; }
     if (ui.kind === 'menu') {
       const b = menuButtons().find((q) => inside(q, x, y));
-      if (!b) { if (!inside({ x: (view.W - 136) >> 1, y: (view.H >> 1) - 48, w: 136, h: 86 }, x, y)) { G.ui = null; menuConfirm = 0; } return; }
+      if (!b) { if (!inside({ x: (view.W - 136) >> 1, y: (view.H >> 1) - 48, w: 136, h: 108 }, x, y)) { G.ui = null; menuConfirm = 0; } return; }
+      if (b.act === 'drive') { G.settings.drive = G.settings.drive === 'wheel' ? 'stick' : 'wheel'; try { localStorage.setItem('thelast-settings', JSON.stringify(G.settings)); } catch (er) { /* rien */ } }
       if (b.act === 'resume') { G.ui = null; menuConfirm = 0; }
       if (b.act === 'sound') { G.muted = !G.muted; setMuted(G.muted); try { localStorage.setItem('thelast-muted', G.muted ? '1' : ''); } catch (er) { /* rien */ } }
       if (b.act === 'new') { if (menuConfirm) { menuConfirm = 0; wipe(); newGame(); } else menuConfirm = 1; }
@@ -721,6 +782,8 @@ function up(e) {
   if (b.kind === 'hot') { if (G.p.sel !== b.i) { G.p.sel = b.i; selShow = 1.6; sfx('ui'); } }
   else if (b.kind === 'act') { sfx('ui'); b.a.fn(); }
   else if (b.kind === 'use') useItem(G.p.sel);
+  else if (b.kind === 'fire') fire();
+  else if (b.kind === 'map') { G.ui = { kind: 'map', dx: 0, dy: 0 }; sfx('page'); }
   else if (b.kind === 'bag') { G.ui = { kind: 'inv' }; sfx('open'); }
   else if (b.kind === 'menu') { G.ui = { kind: 'menu' }; sfx('ui'); }
 }
