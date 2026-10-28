@@ -4,6 +4,7 @@ import { tileBuffer, bankBuffer, leafLitter, WATER_FRAMES, T } from './sprites/t
 import { treeFrames, bushFrames, rockSprite, grassFrames, reedFrames, shadowBuffer, SWAY_FRAMES } from './sprites/nature.js';
 import { wallSprite, fenceSprite, roofSprite } from './sprites/build.js';
 import { propSprite } from './sprites/props.js';
+import { carSprite } from './sprites/cars.js';
 import { bakePlayer } from './sprites/player.js';
 import { iconBuffer, ICONS } from './sprites/icons.js';
 import { makeBuffer } from './raster.js';
@@ -25,7 +26,9 @@ export function bakeBase() {
   for (let s = 0; s < 4; s++) S.banks.push(toSprite(bankBuffer(s)));
   for (let v = 0; v < 4; v++) S.litter.push(toSprite(leafLitter(v)));
   const p = bakePlayer();
-  S.player = { walk: p.walk.map((d) => d.map(toSprite)), idle: p.idle.map((d) => d.map(toSprite)), act: p.act.map((d) => d.map(toSprite)) };
+  // [jambes][torsion][image]
+  const bake3 = (A) => A.map((d) => d.map((t) => t.map(toSprite)));
+  S.player = { walk: bake3(p.walk), idle: bake3(p.idle), act: bake3(p.act) };
   for (const id of Object.keys(ICONS)) S.icons[id] = toSprite(iconBuffer(id));
   S.shadows.small = toSprite(shadowBuffer(6, 3));
   S.shadows.tree = toSprite(shadowBuffer(11, 5));
@@ -41,6 +44,7 @@ export const reed = (v, f) => memo(`d${v}`, () => reedFrames(v).map(toSprite))[f
 export const prop = (name, k, v) => memo(`p${name}${k}${v}`, () => toSprite(propSprite(name, k, v).img));
 export const wall = (mask, kind, style, intU, intV, cut) =>
   memo(`w${mask}${kind}${style.ext}${style.int}${intU}${intV}${cut}`, () => toSprite(wallSprite(mask, kind, style, intU, intV, cut).img));
+export const car = (v, k) => memo(`c${v}_${k}`, () => toSprite(carSprite(v, k).img));
 export const fence = (mask) => memo(`f${mask}`, () => toSprite(fenceSprite(mask).img));
 export const roof = (b) => memo(`roof${b.id}`, () => toSprite(roofSprite(b.x1 - b.x0 + 1, b.y1 - b.y0 + 1, b.style, b.seed).img));
 export const icon = (id) => S.icons[id];

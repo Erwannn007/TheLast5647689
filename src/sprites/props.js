@@ -3,7 +3,7 @@
 import { hash } from '../raster.js';
 import { box, cylinder, ellipsoid, capsule, rotPrims, renderSolids } from '../solids.js';
 import {
-  WOOD, DARKWOOD, ENAMEL, METAL, STEEL, GLASS, CREAM, FABRIC, CARPAINT, TIRE, PAINTWOOD,
+  WOOD, DARKWOOD, ENAMEL, METAL, STEEL, GLASS, CREAM, FABRIC, TIRE, PAINTWOOD,
   ROCK, BARK, RUST, CONCRETE, TRIM, BRICK,
 } from '../palette.js';
 
@@ -193,31 +193,6 @@ const MODELS = {
     sm(capsule([0, -5, 16], [0, 5, 16], 2.5, [METAL, FABRIC.blue, FABRIC.red][v % 3])),
     box(2.5, 3, 1, 2, 14, 21, RUST, plain), box(2.5, 3, 2, 4.5, 19, 21, RUST, plain),
   ],
-  car: (v) => {
-    const paint = CARPAINT[v % CARPAINT.length];
-    const body = (q) => {
-      const dust = hash(q.x, q.y, 9) < 0.18 ? -1 : 0;
-      if (q.face === 'r' && q.u > 23 && Math.abs(Math.abs(q.v) - 4.5) < 1.2 && q.z > 6 && q.z < 8.5) return CREAM[3]; // phares
-      if (q.face === 'r' && q.u > 23 && q.z < 5) return METAL[q.shade];
-      if (q.face === 'l' && Math.abs(q.u - 8) < 0.4 && q.z > 4) return paint[0];
-      if (Math.abs(q.z - 7.5) < 0.4 && q.face !== 't') return paint[Math.max(0, q.shade - 1)];
-      return paint[clamp3(q.shade + dust)];
-    };
-    const cabin = (q) => {
-      if (q.face === 't') return paint[clamp3(q.shade + (hash(q.x, q.y, 3) < 0.2 ? -1 : 0))];
-      if (q.z < 11.6) return paint[q.shade];
-      const a = q.face === 'l' ? q.u : q.v;
-      if (q.face === 'l' && Math.abs(a - 8) < 0.7) return paint[1];
-      const refl = ((a + q.z * 0.8) % 9 + 9) % 9;
-      return refl < 1.2 ? GLASS[3] : GLASS[1];
-    };
-    return [
-      sm(box(-8, 24, -6.5, 6.5, 2.5, 10, paint, body)),
-      sm(box(0, 17, -5.8, 5.8, 10, 16.5, paint, cabin)),
-      ...[[-2, 6.6], [18, 6.6], [-2, -6.6], [18, -6.6]].map(([u, w]) => capsule([u, w - 1.2 * Math.sign(w), 3], [u, w, 3], 3, TIRE)),
-      sm(box(-8.5, -7.5, -6, 6, 3, 5.5, METAL, plain)), sm(box(23.5, 24.5, -6, 6, 3, 5.5, METAL, plain)),
-    ];
-  },
   bench: () => [
     ...[[-6, -3], [6, -3], [-6, 3], [6, 3]].map(([u, v]) => box(u - 0.6, u + 0.6, v - 0.6, v + 0.6, 0, 7, METAL)),
     box(-7.5, 7.5, -3.5, 3.5, 7, 8.2, WOOD, (q) => (q.face === 't' && ((q.v + 64) % 2.4) < 0.6 ? 1 : plain(q))),
@@ -294,7 +269,7 @@ function counterPrims(v, sink) {
 }
 
 export const PROP_NAMES = Object.keys(MODELS);
-export const BIG = { bed: 1, sofa: 1, car: 1, swing: 1 }; // 2 cases le long de +u avant rotation
+export const BIG = { bed: 1, sofa: 1, swing: 1 }; // 2 cases le long de +u avant rotation
 
 export function propSprite(name, k = 0, v = 0) {
   const prims = rotPrims(MODELS[name](v), k);

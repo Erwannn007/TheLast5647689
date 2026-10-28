@@ -2,9 +2,8 @@
 import { ctx, view, draw, drawCols } from './gfx.js';
 import * as B from './bank.js';
 import { G, hour, holding, held } from './state.js';
-import { W, MAP } from './world.js';
+import { W, MAP, SIZE } from './world.js';
 import { T, isWater, isFloor } from './sprites/tiles.js';
-import { BIG } from './sprites/props.js';
 import { hash } from './raster.js';
 import { facingVec, litFires } from './game.js';
 
@@ -91,7 +90,7 @@ export function renderWorld(dt, focus, showPlayer) {
         if (o.x !== x || o.y !== y) continue;
         const r = w.room[i];
         if (r >= 0 && r !== pb) continue; // intérieur caché sous le toit
-        if (BIG[o.type]) list.push(...strips(o, () => bigSprite(o), o.cells, d));
+        if (SIZE[o.type]) list.push(...strips(o, () => bigSprite(o), o.cells, d));
         else list.push({ d: d + 1, kind: 'obj', o, x, y });
       }
     }
@@ -128,7 +127,7 @@ export function renderWorld(dt, focus, showPlayer) {
 }
 
 function bigSprite(o) {
-  return B.prop(o.type, o.k, o.v % 4);
+  return o.type === 'car' ? B.car(o.v, o.k) : B.prop(o.type, o.k, o.v % 4);
 }
 // bandes de 16 px : chacune prend la profondeur de la case la plus avancée de sa colonne
 function strips(o, sprf, cells, d) {
@@ -188,12 +187,20 @@ function drawObj(o, x, y) {
 }
 
 function drawPlayer(full) {
-  const p = G.p, S = B.S.player;
+  const p = G.p, S = B.S.player, l = p.legs || 0, t = (p.twist || 0) + 2;
   let spr;
-  if (p.act && p.act.anim === 'act') spr = S.act[p.dir][Math.floor(p.act.t * 5) & 3];
-  else if (p.moving) spr = S.walk[p.dir][Math.floor(p.anim * 8) & 7];
-  else spr = S.idle[p.dir][Math.floor(G.clock * 1.4) & 3];
-  draw(spr, Math.round(isoX(p.x, p.y)), Math.round(isoY(p.x, p.y)) + (p.sitting ? 3 : 0));
+  if (p.act && p.act.anim === 'act') spr = S.act[l][t][Math.floor(p.act.t * 5) & 3];
+  else if (p.moving) { const f = Math.floor(p.anim * 8) & 7; spr = S.walk[l][t][p.back ? (8 - f) & 7 : f]; }
+  else spr = S.idle[l][t][Math.floor(G.clock * 1.4) & 3];
+  const X = Math.round(isoX(p.x, p.y)), Y = Math.round(isoY(p.x, p.y)) + (p.sitting ? 3 : 0);
+  draw(spr, X, Y);
+  // ligne de visée : trois points dans la direction du buste
+  if (full && p.aiming) {
+    const [fx, fy] = facingVec(p.dir);
+    const sx = (fx - fy) * 16, sy = (fx + fy) * 8, k = 1 / Math.hypot(sx, sy);
+    ctx.fillStyle = 'rgba(255,246,216,0.55)';
+    for (const d of [22, 30, 38]) ctx.fillRect(Math.round(X + sx * k * d), Math.round(Y - 17 + sy * k * d), 1, 1);
+  }
 }
 
 function drawBobber(at) {

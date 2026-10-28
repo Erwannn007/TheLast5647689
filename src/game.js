@@ -3,11 +3,13 @@ import { G, newPlayer, say, addTo, has, held, holding, hour } from './state.js';
 import { World, generate, W, SOLID, LABEL, CONTAINERS } from './world.js';
 import { ITEMS, makeStack, COOK_TIME, NOTES, PHOTOS, JOURNALS, BROADCASTS } from './items.js';
 import { isWater } from './sprites/tiles.js';
-import { DIRS, dirFromWorld } from './sprites/player.js';
+import { DIRS, angleFromWorld, dirOfAngle } from './sprites/player.js';
 import { sfx } from './audio.js';
 
-const SAVE_KEY = 'thelast-save-v1';
+const SAVE_KEY = 'thelast-save-v2'; // v2 : routes élargies, voitures 4x2
 const R = 0.17; // demi-taille du joueur (tuiles)
+const TWIST_MAX = Math.PI / 2; // le buste tourne au plus d'un quart de tour par rapport aux jambes
+const angDiff = (a, b) => { let d = (a - b) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; return d; };
 const clamp = (v, a = 0, b = 100) => (v < a ? a : v > b ? b : v);
 export const START_NOTE = 'Les bus sont partis il y a trois jours. Personne n\'est revenu. Moi, je suis resté. Je ne sais pas encore pourquoi.';
 
@@ -446,7 +448,12 @@ export function update(dt, input) {
 
   // déplacement
   p.moving = false;
+  p.back = false;
   const blocked = G.ui && G.ui.kind !== 'text' ? true : false;
+  // visée (joystick droit) : angle dans le plan caméra, 0 = vers la caméra
+  const aiming = !p.sleeping && !blocked && input.amag > 0.3;
+  const aimA = aiming ? Math.atan2(input.ax, input.ay * 2) : null;
+  if (p.legsA === undefined) p.legsA = p.dir * Math.PI / 4;
   if (!p.sleeping && !blocked && input.mag > 0.15) {
     if (p.act && !p.act.locked) { p.act = null; }
     p.sitting = false;
@@ -458,12 +465,30 @@ export function update(dt, input) {
     let speed = 2.1 * Math.min(1, 0.35 + input.mag * 0.75);
     if (p.energy < 10) speed *= 0.6;
     if (p.health < 25) speed *= 0.75;
+    const moveA = angleFromWorld(wx, wy);
+    p.legsA = moveA;
+    // viser loin derrière soi : on se retourne et on marche à reculons, moins vite
+    if (aiming && Math.abs(angDiff(aimA, moveA)) > TWIST_MAX + 0.18) { p.legsA = moveA + Math.PI; p.back = true; speed *= 0.55; }
     move(p, wx * speed, wy * speed, dt);
-    p.dir = dirFromWorld(wx, wy);
     p.moving = true;
     p.anim += dt * speed * 2.3;
     if (Math.floor(p.anim * 2) !== Math.floor((p.anim - dt * speed * 2.3) * 2)) sfx('step', w.T(Math.floor(p.x), Math.floor(p.y)));
-  } else p.anim += dt;
+  } else {
+    p.anim += dt;
+    // à l'arrêt, les pieds pivotent quand le buste arrive en butée
+    if (aiming) {
+      const d = angDiff(aimA, p.legsA);
+      if (Math.abs(d) > TWIST_MAX) p.legsA = aimA - Math.sign(d) * TWIST_MAX;
+    }
+  }
+  // buste : suit la visée, au plus à 90° des jambes
+  const torsoA = aiming ? p.legsA + Math.max(-TWIST_MAX, Math.min(TWIST_MAX, angDiff(aimA, p.legsA))) : p.legsA;
+  p.legs = dirOfAngle(p.legsA);
+  p.dir = dirOfAngle(torsoA);
+  let off = (((p.dir - p.legs) % 8) + 8) % 8;
+  if (off > 4) off -= 8;
+  p.twist = Math.max(-2, Math.min(2, off));
+  p.aiming = aiming;
 
   // action en cours
   if (p.act) {

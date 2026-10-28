@@ -1,7 +1,6 @@
 // Le monde : grille de tuiles, murs fins, bâtiments, objets. Généré d'une graine.
 import { hash } from './raster.js';
 import { T, isWater, isRoad } from './sprites/tiles.js';
-import { BIG } from './sprites/props.js';
 import { rollLoot } from './items.js';
 
 export const MAP = 96;
@@ -24,7 +23,7 @@ export const LABEL = {
 export const SOLID = {
   fridge: 0.42, counter: 0.46, sink: 0.46, stove: 0.44, wardrobe: 0.46, dresser: 0.42, bed: 0.46, sofa: 0.46,
   armchair: 0.4, table: 0.44, chair: 0.25, bookshelf: 0.46, tv: 0.42, toilet: 0.3, bathsink: 0.38, shelf: 0.46,
-  crate: 0.38, trash: 0.32, mailbox: 0.12, car: 0.42, bench: 0.42, lamp: 0.1, pump: 0.2, campfire: 0.3,
+  crate: 0.38, trash: 0.32, mailbox: 0.12, car: 0.5, bench: 0.42, lamp: 0.1, pump: 0.2, campfire: 0.3,
   tree: 0.16, rock: 0.32, stump: 0.18, swing: 0.1, sign: 0.08, hydrant: 0.12,
 };
 
@@ -132,11 +131,18 @@ export class World {
   }
 }
 
-// cases occupées : les grands objets s'étendent vers +u avant rotation
+// taille des grands objets (longueur le long de +u, largeur le long de +v, avant rotation)
+export const SIZE = { bed: [2, 1], sofa: [2, 1], swing: [2, 1], car: [4, 2] };
+// cases occupées, tournées comme le sprite (rotPrims) : k=1 envoie +u vers +v
 export function footprint(o) {
-  if (!BIG[o.type]) return [[o.x, o.y]];
-  const d = [[1, 0], [0, 1], [-1, 0], [0, -1]][o.k & 3];
-  return [[o.x, o.y], [o.x + d[0], o.y + d[1]]];
+  const sz = SIZE[o.type];
+  if (!sz) return [[o.x, o.y]];
+  const out = [];
+  for (let a = 0; a < sz[0]; a++) for (let b = 0; b < sz[1]; b++) {
+    const [du, dv] = [[a, b], [-b, a], [-a, -b], [b, -a]][o.k & 3];
+    out.push([o.x + du, o.y + dv]);
+  }
+  return out;
 }
 
 // ------------------------------------------------------------------ génération
@@ -181,16 +187,17 @@ export function generate(seed) {
     }
   };
   // grand-route est-ouest, rue nord-sud jusqu'au lac, deux rues de lotissement
-  road(0, 48, MAP - 1, 50, 'x');
-  road(46, 17, 48, 84, 'y');
-  road(18, 30, 76, 31);
-  road(18, 68, 76, 69);
-  walk(14, 47, 82, 47); walk(14, 51, 82, 51);
-  walk(45, 18, 45, 84); walk(49, 18, 49, 84);
-  walk(18, 29, 76, 29); walk(18, 32, 76, 32);
-  walk(18, 67, 76, 67); walk(18, 70, 76, 70);
+  // grand-route est-ouest et rue nord-sud à deux voies (5 cases), rues de lotissement (3 cases)
+  road(0, 46, MAP - 1, 50, 'x');
+  road(45, 17, 49, 84, 'y');
+  road(18, 29, 76, 31);
+  road(18, 67, 76, 69);
+  walk(14, 45, 82, 45); walk(14, 51, 82, 51);
+  walk(44, 18, 44, 84); walk(50, 18, 50, 84);
+  walk(18, 28, 76, 28); walk(18, 32, 76, 32);
+  walk(18, 66, 76, 66); walk(18, 70, 76, 70);
   // chemin de terre vers la plage
-  for (let y = 12; y < 17; y++) for (let x = 46; x <= 48; x++) { set(x, y, y < 14 ? T.SAND : T.PATH); reserved[w.idx(x, y)] = 1; }
+  for (let y = 12; y < 17; y++) for (let x = 45; x <= 49; x++) { set(x, y, y < 14 ? T.SAND : T.PATH); reserved[w.idx(x, y)] = 1; }
 
   // 4. parc et étang (sud-ouest)
   const px = 27, py = 80;
@@ -200,7 +207,7 @@ export function generate(seed) {
     if (d < 1) set(x, y, T.WATER);
     if (d < 3.2) reserved[w.idx(x, y)] = 1;
   }
-  for (let x = 13; x <= 42; x++) { if (!isWater(w.T(x, 73))) set(x, 73, T.PATH); reserved[w.idx(x, 73)] = 1; }
+  for (let x = 13; x <= 43; x++) { if (!isWater(w.T(x, 73))) set(x, 73, T.PATH); reserved[w.idx(x, 73)] = 1; }
 
   // 5. bâtiments
   const blocked = (x0, y0, x1, y1, m) => {
@@ -211,14 +218,14 @@ export function generate(seed) {
     return false;
   };
   // magasin au carrefour
-  makeStore(w, rnd, 51, 37, 62, 45);
+  makeStore(w, rnd, 52, 35, 63, 43);
   // maisons le long des rues : face à la rue (porte côté rue)
   const lots = [];
   const streets = [
-    { y: 29, side: -1, x0: 19, x1: 75 }, { y: 32, side: 1, x0: 19, x1: 75 },
-    { y: 47, side: -1, x0: 14, x1: 44 }, { y: 51, side: 1, x0: 14, x1: 44 },
-    { y: 47, side: -1, x0: 64, x1: 82 }, { y: 51, side: 1, x0: 51, x1: 82 },
-    { y: 67, side: -1, x0: 19, x1: 75 }, { y: 70, side: 1, x0: 51, x1: 75 },
+    { y: 28, side: -1, x0: 19, x1: 75 }, { y: 32, side: 1, x0: 19, x1: 75 },
+    { y: 45, side: -1, x0: 14, x1: 43 }, { y: 51, side: 1, x0: 14, x1: 43 },
+    { y: 45, side: -1, x0: 65, x1: 82 }, { y: 51, side: 1, x0: 51, x1: 82 },
+    { y: 66, side: -1, x0: 19, x1: 75 }, { y: 70, side: 1, x0: 51, x1: 75 },
   ];
   for (const st of streets) {
     let x = st.x0 + ri(0, 2);
@@ -246,19 +253,29 @@ export function generate(seed) {
 
   // 6. objets de rue : lampadaires, voitures, bouches d'incendie
   for (let x = 16; x < 82; x += 7) {
-    for (const y of [47, 51]) if (!w.wall[w.idx(x, y)] && w.occ[w.idx(x, y)] < 0 && rnd() < 0.8) w.addObj({ type: 'lamp', x, y, k: y === 47 ? 0 : 2, v: 0 });
+    for (const y of [45, 51]) if (!w.wall[w.idx(x, y)] && w.occ[w.idx(x, y)] < 0 && rnd() < 0.8) w.addObj({ type: 'lamp', x, y, k: y === 45 ? 0 : 2, v: 0 });
   }
-  for (let y = 20; y < 84; y += 8) for (const x of [45, 49]) if (w.occ[w.idx(x, y)] < 0 && !w.wall[w.idx(x, y)]) w.addObj({ type: 'lamp', x, y, k: 0, v: 0 });
-  const roadCells = [];
-  for (let y = 0; y < MAP; y++) for (let x = 0; x < MAP; x++) if (isRoad(w.T(x, y))) roadCells.push([x, y]);
-  for (let i = 0; i < 16; i++) {
-    const [x, y] = pick(roadCells);
-    const along = w.T(x + 1, y) && isRoad(w.T(x + 1, y)) && isRoad(w.T(x - 1, y)) && !isRoad(w.T(x, y - 2)) || isRoad(w.T(x + 2, y)) && !isRoad(w.T(x, y + 2));
-    const k = along ? 0 : 1;
-    if (w.canPlace('car', x, y, k)) addContainer(w, rnd, { type: 'car', x, y, k, v: ri(0, 4) });
+  for (let y = 20; y < 84; y += 8) for (const x of [44, 50]) if (w.occ[w.idx(x, y)] < 0 && !w.wall[w.idx(x, y)]) w.addObj({ type: 'lamp', x, y, k: 0, v: 0 });
+  // voitures garées sur les voies, dans le sens de la circulation : [x0, x1, y, k] ou [y0, y1, x, k]
+  const lanes = [
+    { xs: [2, 90], y: 47, k: 2 }, { xs: [2, 90], y: 49, k: 0 },
+    { xs: [20, 72], y: 31, k: 2 }, { xs: [20, 72], y: 29, k: 0 },
+    { xs: [20, 72], y: 69, k: 2 }, { xs: [20, 72], y: 67, k: 0 },
+    { ys: [18, 82], x: 49, k: 1 }, { ys: [18, 82], x: 45, k: 3 },
+  ];
+  const allRoad = (o) => footprint(o).every(([cx, cy]) => w.inb(cx, cy) && isRoad(w.T(cx, cy)));
+  for (let i = 0, n = 0; i < 200 && n < 15; i++) {
+    const L = pick(lanes);
+    const o = L.xs ? { type: 'car', x: ri(L.xs[0], L.xs[1]), y: L.y, k: L.k } : { type: 'car', x: L.x, y: ri(L.ys[0], L.ys[1]), k: L.k };
+    // pas au milieu du carrefour
+    if (footprint(o).some(([cx, cy]) => cx >= 44 && cx <= 50 && cy >= 45 && cy <= 51)) continue;
+    if (!allRoad(o) || !w.canPlace('car', o.x, o.y, o.k)) continue;
+    o.v = ri(0, 49);
+    addContainer(w, rnd, o);
+    n++;
   }
   for (let i = 0; i < 6; i++) {
-    const x = ri(16, 80), y = rnd() < 0.5 ? 47 : 51;
+    const x = ri(16, 80), y = rnd() < 0.5 ? 45 : 51;
     if (w.canPlace('hydrant', x, y, 0)) w.addObj({ type: 'hydrant', x, y, k: 0, v: 0 });
   }
 
@@ -267,7 +284,7 @@ export function generate(seed) {
   w.addObj({ type: 'bench', x: px - 2, y: py - 6, k: 0, v: 0 });
   w.addObj({ type: 'bench', x: px + 4, y: py - 6, k: 0, v: 0 });
   w.addObj({ type: 'swing', x: px + 10, y: py + 2, k: 1, v: 0 });
-  w.addObj({ type: 'sign', x: 44, y: 72, k: 0, v: 0 });
+  w.addObj({ type: 'sign', x: 43, y: 72, k: 0, v: 0 });
 
   // 8. végétation
   for (let y = 1; y < MAP - 1; y++) for (let x = 1; x < MAP - 1; x++) {

@@ -8,12 +8,12 @@ import { useItem, drop, save, newGame, wipe, refreshFires } from './game.js';
 import { sfx, setMuted, initAudio } from './audio.js';
 import { screenOf } from './render.js';
 
-export const input = { x: 0, y: 0, mag: 0 };
+export const input = { x: 0, y: 0, mag: 0, ax: 0, ay: 0, amag: 0 }; // gauche : marche, droite : visée
 const BASE = [62, 52, 44]; // panneaux : brun chaud
 const SLOT = 20;
 let buttons = []; // zones cliquables du HUD, recalculées à chaque image
 let slots = []; // cases de l'inventaire ouvert
-let stick = null;
+let stick = null, aimStick = null;
 let pointer = null; // doigt qui manipule l'inventaire
 let lastTap = null;
 let menuConfirm = 0;
@@ -148,18 +148,23 @@ export function drawHUD() {
     ctx.fillStyle = '#fff6d8';
     ctx.fillRect(X - 2, Y - lift + bob, 5, 1); ctx.fillRect(X - 1, Y - lift + bob + 1, 3, 1); ctx.fillRect(X, Y - lift + bob + 2, 1, 1);
   }
-  // joystick
+  // joysticks : marche (clair) et visée (ambré)
   if (stick) {
     circle(stick.x0, stick.y0, 22, 'rgba(255,255,255,0.08)');
     circle(stick.x0, stick.y0, 21, 'rgba(0,0,0,0.12)');
     circle(Math.round(stick.x0 + input.x * 18), Math.round(stick.y0 + input.y * 18), 8, 'rgba(255,248,230,0.35)');
   }
+  if (aimStick) {
+    circle(aimStick.x0, aimStick.y0, 22, 'rgba(255,200,120,0.08)');
+    circle(aimStick.x0, aimStick.y0, 21, 'rgba(0,0,0,0.12)');
+    circle(Math.round(aimStick.x0 + input.ax * 18), Math.round(aimStick.y0 + input.ay * 18), 7, 'rgba(255,200,120,0.4)');
+  }
   // action en cours : petite barre de progression
   if (p.act && p.act.dur > 0.9) {
     const [X, Y] = screenOf(p.x, p.y);
     const k = Math.min(1, p.act.t / p.act.dur);
-    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(X - 11, Y - 40, 22, 4);
-    ctx.fillStyle = '#efe2c0'; ctx.fillRect(X - 10, Y - 39, Math.round(20 * k), 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(X - 11, Y - 46, 22, 4);
+    ctx.fillStyle = '#efe2c0'; ctx.fillRect(X - 10, Y - 45, Math.round(20 * k), 2);
   }
   drawMessages();
 }
@@ -265,7 +270,7 @@ function drawInv() {
   if (L.portrait) {
     const q = L.portrait;
     well(q.x, q.y, q.w, q.h, [40, 44, 52]);
-    draw(B.S.player.idle[0][Math.floor(G.clock * 1.4) & 3], q.x + 17, q.y + 39);
+    draw(B.S.player.idle[0][2][Math.floor(G.clock * 1.4) & 3], q.x + 17, q.y + 40);
     drawText('2X2', L.x0 + 70 + 2 * SLOT + 6, L.top + 4 + 2 * SLOT + 2, 'rgba(240,228,200,0.45)', null);
   }
   if (L.arrow) {
@@ -507,19 +512,22 @@ function down(e) {
   layoutHUD();
   const b = buttons.find((q) => inside(q, x, y));
   if (b) { P.btn = b; return; }
-  if (!stick) { stick = { id: e.pointerId, x0: x, y0: y }; input.x = input.y = input.mag = 0; }
+  // moitié gauche de l'écran : marcher ; moitié droite : tourner le buste
+  if (x < view.W / 2) { if (!stick) { stick = { id: e.pointerId, x0: x, y0: y }; input.x = input.y = input.mag = 0; } }
+  else if (!aimStick) { aimStick = { id: e.pointerId, x0: x, y0: y }; input.ax = input.ay = input.amag = 0; }
 }
 function moveP(e) {
   const P = pts.get(e.pointerId);
   if (!P) return;
   const [x, y] = toGame(e);
   P.x = x; P.y = y;
-  if (stick && stick.id === e.pointerId) {
-    let dx = x - stick.x0, dy = y - stick.y0;
+  for (const [st, k] of [[stick, ''], [aimStick, 'a']]) {
+    if (!st || st.id !== e.pointerId) continue;
+    let dx = x - st.x0, dy = y - st.y0;
     const l = Math.hypot(dx, dy), max = 18;
-    if (l > max) { stick.x0 += (dx / l) * (l - max); stick.y0 += (dy / l) * (l - max); dx = x - stick.x0; dy = y - stick.y0; }
-    input.mag = Math.min(1, Math.hypot(dx, dy) / max);
-    input.x = dx / max; input.y = dy / max;
+    if (l > max) { st.x0 += (dx / l) * (l - max); st.y0 += (dy / l) * (l - max); dx = x - st.x0; dy = y - st.y0; }
+    input[k ? 'amag' : 'mag'] = Math.min(1, Math.hypot(dx, dy) / max);
+    input[k ? 'ax' : 'x'] = dx / max; input[k ? 'ay' : 'y'] = dy / max;
   }
 }
 function up(e) {
@@ -529,6 +537,7 @@ function up(e) {
   if (!P) return;
   clearTimeout(P.timer);
   if (stick && stick.id === e.pointerId) { stick = null; input.x = input.y = input.mag = 0; return; }
+  if (aimStick && aimStick.id === e.pointerId) { aimStick = null; input.ax = input.ay = input.amag = 0; return; }
   if (P.long) { pointer = null; return; }
   const { x, y } = P;
   if (G.mode === 'title') { onStart && onStart(); return; }
@@ -609,6 +618,8 @@ export function bindInput() {
   const upd = () => {
     const x = (keys.ArrowRight || keys.d ? 1 : 0) - (keys.ArrowLeft || keys.q || keys.a ? 1 : 0);
     const y = (keys.ArrowDown || keys.s ? 1 : 0) - (keys.ArrowUp || keys.z || keys.w ? 1 : 0);
+    const ax = (keys.l ? 1 : 0) - (keys.j ? 1 : 0), ay = (keys.k ? 1 : 0) - (keys.i ? 1 : 0);
+    if (!aimStick) { const m = Math.hypot(ax, ay); input.ax = m ? ax / m : 0; input.ay = m ? ay / m : 0; input.amag = m ? 1 : 0; }
     if (stick) return;
     const l = Math.hypot(x, y);
     input.x = l ? x / l : 0; input.y = l ? y / l : 0; input.mag = l ? 1 : 0;
@@ -617,7 +628,7 @@ export function bindInput() {
     keys[e.key] = true; upd();
     if (G.mode !== 'play') return;
     if (e.key === 'e' && !G.ui && G.target) G.target.acts[0].fn();
-    if (e.key === 'i' || e.key === 'Tab') { e.preventDefault(); if (G.ui) closeUI(); else G.ui = { kind: 'inv' }; }
+    if (e.key === 'Tab') { e.preventDefault(); if (G.ui) closeUI(); else G.ui = { kind: 'inv' }; }
     if (e.key === 'Escape' && G.ui) closeUI();
     if (e.key === 'f' && !G.ui) useItem(G.p.sel);
     if (e.key >= '1' && e.key <= '9') G.p.sel = +e.key - 1;

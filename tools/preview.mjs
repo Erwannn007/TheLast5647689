@@ -32,16 +32,22 @@ const groups = {
     const p = await import('../src/sprites/player.js');
     const b = p.bakePlayer();
     const s = [];
-    for (let d = 0; d < 8; d++) s.push(b.idle[d][0]);
-    for (let f = 0; f < 8; f++) s.push(b.walk[1][f]);
-    for (let f = 0; f < 4; f++) s.push(b.act[1][f]);
-    for (let f = 0; f < 4; f++) s.push(b.walk[4][f*2]);
-    sheet('player', s, { scale: 4, cols: 8 });
+    for (let d = 0; d < 8; d++) s.push(b.idle[d][2][0]);
+    for (let o = 0; o < 5; o++) s.push(b.idle[1][o][0]); // jambes vers 1, buste 1-2 .. 1+2
+    for (let d = 7; d <= 11; d++) s.push(b.idle[d % 8][2][0]);
+    for (let f = 0; f < 8; f++) s.push(b.walk[1][2][f]);
+    for (let f = 0; f < 8; f++) s.push(b.walk[4][0][f]);
+    for (let f = 0; f < 4; f++) s.push(b.act[1][2][f]);
+    sheet('player', s, { scale: 4, cols: 10 });
   },
-  async icons() {
-    const p = await import('../src/sprites/icons.js');
-    const s = Object.keys(p.ICONS).map((k) => { const b = p.iconBuffer(k); console.log(k); return b; });
-    sheet('icons', s, { scale: 6, cols: 12, bg: [58, 52, 46] });
+  async cars() {
+    const c = await import('../src/sprites/cars.js');
+    const t = Date.now();
+    const s = [];
+    for (let v = 0; v < 10; v++) s.push(c.carSprite(v, v < 5 ? 0 : 3).img);
+    for (const k of [1, 2]) s.push(c.carSprite(7, k).img);
+    console.log('ms par voiture', (Date.now() - t) / 12);
+    sheet('cars', s, { scale: 3, cols: 4 });
   },
   async tiles() {
     const t = await import('../src/sprites/tiles.js');

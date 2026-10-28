@@ -23,10 +23,10 @@ for (let x = 0; x < N; x++) {
   if ((x * 7) % 5 === 0) set(x, h - 1, ground[1]);
 }
 // le survivant de dos
-const spr = bakePlayer(false).idle[4][0];
+const spr = bakePlayer(false).idle[4][2][0];
 for (let y = 0; y < spr.h; y++) for (let x = 0; x < spr.w; x++) {
   const o = (y * spr.w + x) * 4;
-  if (spr.data[o + 3]) set(x - spr.ox + 11, y - spr.oy + 29, [spr.data[o], spr.data[o + 1], spr.data[o + 2]]);
+  if (spr.data[o + 3]) set(x - spr.ox + 11, y - spr.oy + 31, [spr.data[o], spr.data[o + 1], spr.data[o + 2]]);
 }
 mkdirSync(new URL('../icons/', import.meta.url), { recursive: true });
 for (const size of [180, 192, 512]) {

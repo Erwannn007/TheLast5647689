@@ -63,3 +63,14 @@ G.mode = 'play'; game.save();
 const before = JSON.stringify(G.p.inv);
 game.load();
 ok(JSON.stringify(G.p.inv) === before && G.world.objs.filter(Boolean).length > 1000, 'sauvegarde rechargée');
+// visée : buste tourné de 90° au plus, marche à reculons au-delà
+G.ui = null; G.p.sleeping = false; G.p.act = null;
+const at = (mx, my, ax, ay) => { for (let i = 0; i < 3; i++) game.update(0.02, { x: mx, y: my, mag: Math.hypot(mx, my), ax, ay, amag: Math.hypot(ax, ay) }); return { legs: G.p.legs, dir: G.p.dir, twist: G.p.twist, back: G.p.back }; };
+let r = at(0, 1, 1, 0); // marche vers la caméra, vise à droite
+ok(r.legs === 0 && r.twist === 2 && !r.back, `marcher en visant sur le côté : jambes ${r.legs} buste ${r.dir} torsion ${r.twist}`);
+r = at(0, 1, 0, -1); // marche vers la caméra, vise derrière
+ok(r.back && r.dir === 4 && r.legs === 4, `viser derrière en marchant : à reculons (jambes ${r.legs}, buste ${r.dir})`);
+r = at(0, 0, 0, -1); // à l'arrêt, vise derrière : les pieds pivotent
+ok(Math.abs(r.twist) <= 2 && r.dir === 4, `à l'arrêt, les pieds suivent (torsion ${r.twist})`);
+r = at(0, 1, 0, 0);
+ok(r.twist === 0 && r.legs === 0, 'sans visée, le buste revient dans l\'axe');
